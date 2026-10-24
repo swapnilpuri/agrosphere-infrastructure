@@ -104,7 +104,7 @@ services:
       timeout: 3s
       retries: 20
   estate:
-    image: ${ESTATE_IMAGE:-agrosphere-estate-service:0.2.1}
+    image: ${ESTATE_IMAGE:-agrosphere-estate-service:0.2.2}
     build: ../agrosphere-estate-service
     profiles: [apps]
     environment:
@@ -165,8 +165,35 @@ services:
       rabbitmq-init: {condition: service_completed_successfully}
       keycloak: {condition: service_healthy}
       otel-collector: {condition: service_healthy}
+  operations:
+    image: ${OPERATIONS_IMAGE:-agrosphere-operations-service:0.2.0}
+    build: ../agrosphere-operations-service
+    profiles: [apps]
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/agrosphere_operations
+      DB_USER: agrosphere_operations
+      DB_PASSWORD: ${OPERATIONS_DB_PASSWORD:?Set private service password}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: agrosphere
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set private broker password}
+      OIDC_ISSUER_URI: ${OIDC_PUBLIC_URL:-http://localhost:8180}/realms/agrosphere
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/agrosphere/protocol/openid-connect/certs
+      ESTATE_SERVICE_URL: http://estate:8081
+      OUTBOX_PUBLICATION_ENABLED: "true"
+      EVENT_DATA_PROVENANCE: SIMULATED
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "{ printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&0; grep '200'; } 0<>/dev/tcp/localhost/8083"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq-init: {condition: service_completed_successfully}
+      keycloak: {condition: service_healthy}
+      estate: {condition: service_healthy}
   gateway:
-    image: ${GATEWAY_IMAGE:-agrosphere-api-gateway:0.2.0}
+    image: ${GATEWAY_IMAGE:-agrosphere-api-gateway:0.2.1}
     build: ../agrosphere-api-gateway
     profiles: [apps]
     ports: ["127.0.0.1:8080:8080"]
@@ -174,6 +201,7 @@ services:
       GATEWAY_LIMITS_BODY_BYTES: ${GATEWAY_MAX_BODY_BYTES:-2097152}
       ESTATE_SERVICE_URL: http://estate:8081
       SPATIAL_SERVICE_URL: http://spatial:8082
+      OPERATIONS_SERVICE_URL: http://operations:8083
       OIDC_ISSUER_URI: ${OIDC_PUBLIC_URL:-http://localhost:8180}/realms/agrosphere
       OIDC_JWK_SET_URI: http://keycloak:8080/realms/agrosphere/protocol/openid-connect/certs
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}

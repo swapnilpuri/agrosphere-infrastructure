@@ -6,6 +6,10 @@ def configure(config):
     realm=json.loads((ROOT/'keycloak/agrosphere-realm.json').read_text())
     base=config.get('OIDC_PUBLIC_URL','http://localhost:8180')+'/admin/realms/agrosphere'
     token=admin_token(config)
+    existing_roles,_=request(base+'/roles',token=token)
+    for desired in realm['roles']['realm']:
+        if not any(r['name']==desired['name'] for r in existing_roles):
+            request(base+'/roles','POST',desired,token,expected=201)
     scopes,_=request(base+'/client-scopes',token=token)
     for desired in realm['clientScopes']:
         found=next((s for s in scopes if s['name']==desired['name']),None)

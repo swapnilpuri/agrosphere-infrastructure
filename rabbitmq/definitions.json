@@ -19,6 +19,15 @@
       "arguments": {
         "x-max-length": 10000
       }
+    },
+    {
+      "name": "agrosphere.dev.operations.v1",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-max-length": 10000
+      }
     }
   ],
   "bindings": [
@@ -60,6 +69,54 @@
       "destination": "agrosphere.dev.spatial.v1",
       "destination_type": "queue",
       "routing_key": "agrosphere.DigitalTwinAssetRegistered.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.operations.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.TappingScheduleActivated.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.operations.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.TappingAssignmentCreated.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.operations.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.TappingAssignmentStarted.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.operations.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.TappingCompleted.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.operations.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.TappingMissed.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.operations.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.TappingAssignmentCancelled.v1",
       "arguments": {}
     }
   ]

@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 ROOT=Path(__file__).resolve().parents[1]
 compose=yaml.safe_load((ROOT/'compose.yaml').read_text());services=compose['services']
-required={'postgres','rabbitmq','rabbitmq-init','keycloak','gateway','estate','spatial','otel-collector','jaeger'}
+required={'postgres','rabbitmq','rabbitmq-init','keycloak','gateway','estate','spatial','otel-collector','jaeger','operations'}
 assert required<=services.keys()
 for name in required-{'rabbitmq-init'}:assert services[name].get('healthcheck'),name
 for name,service in services.items():
@@ -15,7 +15,7 @@ for name,service in services.items():
     for dependency,condition in service.get('depends_on',{}).items():
         assert dependency in services
         assert condition['condition'] in {'service_healthy','service_completed_successfully'}
-for name in ['estate','spatial']:assert not services[name].get('ports')
+for name in ['estate','spatial','operations']:assert not services[name].get('ports')
 assert services['estate']['environment']['DB_USER'] != services['spatial']['environment']['DB_USER']
 realm=json.loads((ROOT/'keycloak/agrosphere-realm.json').read_text());assert not realm.get('users')
 web=realm['clients'][0];assert web['publicClient'] and not web['directAccessGrantsEnabled']
@@ -33,7 +33,7 @@ public=[c for c in realm['clients'] if c.get('publicClient')]
 assert {c['clientId'] for c in public}=={'agrosphere-web','agrosphere-integration-tests'}
 for client in public:
     assert client['attributes']['pkce.code.challenge.method']=='S256' and not client['directAccessGrantsEnabled']
-assert {c['clientId'] for c in realm['clients'] if c.get('bearerOnly')}=={'agrosphere-api','estate-service','spatial-service'}
+assert {c['clientId'] for c in realm['clients'] if c.get('bearerOnly')}=={'agrosphere-api','estate-service','spatial-service','operations-service'}
 example=dict(line.split('=',1) for line in (ROOT/'.env.example').read_text().splitlines() if line and not line.startswith('#') and '=' in line)
 passwords=[key for key in example if key.endswith('_PASSWORD')]
 assert len(passwords)==10 and all('REPLACE' in example[key] for key in passwords)
@@ -51,3 +51,8 @@ if '--local' in sys.argv:
         assert re.fullmatch(r'[1-9][0-9]*(?:ms|s|m)',local.get(key,'2s'))
     print('PASS: private local environment is complete, distinct and within configured bounds; secrets omitted')
 print('PASS: isolated platform configuration, health dependencies, loopback exposure, trusted identity, pinned contracts and workflows')
+
+assert {"FIELD_WORKER","FIELD_SUPERVISOR","AUDITOR","PLANTATION_ADMIN"}<={r["name"] for r in realm["roles"]["realm"]}
+assert "operations-service" in {m["config"].get("included.custom.audience") for m in mappers}
+
+assert any(m["protocolMapper"]=="oidc-sub-mapper" and m["config"].get("access.token.claim")=="true" for m in mappers)

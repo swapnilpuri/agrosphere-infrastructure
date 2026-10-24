@@ -20,6 +20,18 @@
       },
       {
         "name": "VIEWER"
+      },
+      {
+        "name": "PLANTATION_ADMIN"
+      },
+      {
+        "name": "FIELD_SUPERVISOR"
+      },
+      {
+        "name": "FIELD_WORKER"
+      },
+      {
+        "name": "AUDITOR"
       }
     ]
   },
@@ -90,6 +102,27 @@
             "access.token.claim": "true",
             "id.token.claim": "false"
           }
+        },
+        {
+          "name": "operations-service",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "operations-service",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "trusted-subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     }
@@ -154,6 +187,13 @@
       "attributes": {
         "pkce.code.challenge.method": "S256"
       }
+    },
+    {
+      "clientId": "operations-service",
+      "enabled": true,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false
     }
   ],
   "components": {

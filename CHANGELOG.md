@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 — 2026-10-24
+
+Operations Compose integration, audience and scoped operational roles, durable local event sink, disposable full-stack acceptance.
+
 ## 0.2.0 — 2026-10-24
 
 Completed full requirements: generated development users and real PKCE, two-division/ten-block canonical GeoJSON import/queries, direct backend security/size limits, parent-late/out-of-order verification, durable AMQP trace assertions and four dedicated Windows runbooks.
