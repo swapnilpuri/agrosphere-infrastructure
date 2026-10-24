@@ -39,6 +39,7 @@ jobs:
       - run: docker compose --profile apps build jaeger otel-collector
       - run: docker compose --profile apps up -d --no-build --wait --wait-timeout 240
       - run: python scripts/configure_identity.py
+      - run: python scripts/dev_identity.py
       - run: python scripts/smoke_platform.py --faults
       - uses: actions/upload-artifact@v4
         if: always()

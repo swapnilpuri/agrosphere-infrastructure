@@ -118,6 +118,15 @@ layer,_=api('/spatial/layers','POST',{'estateId':estate_id,'layerCode':'LAY_'+su
 contract('spatial','Layer',layer);layers,_=api('/spatial/estates/'+estate_id+'/layers',token=manager);assert layers['content'][0]['id']==layer['id']
 exported,_=api('/spatial/estates/'+estate_id+'/export/geojson',token=manager);contract('spatial','GeoCollection',exported);assert len(exported['features'])==13
 passed('Gateway spatial queries retrieve estate boundary, all block geometry, point membership, bbox/centroids, GIS layers and GeoJSON export')
+eventually(lambda:sql(config,'spatial',f"SELECT count(*) FROM outbox_event WHERE aggregate_id='{estate_id}' AND delivery_status<>'PUBLISHED'")=='0')
+spatial_events=json.loads(sql(config,'spatial',f"SELECT json_agg(payload)::text FROM outbox_event WHERE aggregate_id='{estate_id}'"))
+assert spatial_events
+for event in spatial_events:
+    schema=json.loads((ROOT/'tests/contracts/events/spatial/v1'/f"{event['eventType']}.schema.json").read_text());validate(schema,event)
+messages=broker(config,'queues/%2F/agrosphere.dev.spatial.v1/get','POST',{'count':10000,'ackmode':'ack_requeue_true','encoding':'auto','truncate':262144})
+received={json.loads(message['payload'])['eventId'] for message in messages}
+assert {event['eventId'] for event in spatial_events}<=received
+passed('Actual Spatial v1 envelopes validate and confirmed publications reach the durable diagnostic queue')
 
 api('/estates/'+estate_id,token=outsider,expected=403);api('/spatial/estates/'+estate_id+'/features',token=outsider,expected=403)
 api('/blocks/'+blocks[0]['id'],'PUT',updated,outsider,403)

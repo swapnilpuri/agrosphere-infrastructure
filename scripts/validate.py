@@ -1,5 +1,7 @@
 """Offline configuration and pinned contracts; no sibling source dependencies."""
 import hashlib
+import sys
+import re
 import json
 from pathlib import Path
 import yaml
@@ -27,4 +29,25 @@ for name,digest in manifest['files'].items():assert hashlib.sha256((ROOT/'tests/
 for file in (ROOT/'.github/workflows').glob('*.yml'):
     workflow=yaml.load(file.read_text(),Loader=yaml.BaseLoader)
     assert workflow['permissions']['contents']=='read'
+public=[c for c in realm['clients'] if c.get('publicClient')]
+assert {c['clientId'] for c in public}=={'agrosphere-web','agrosphere-integration-tests'}
+for client in public:
+    assert client['attributes']['pkce.code.challenge.method']=='S256' and not client['directAccessGrantsEnabled']
+assert {c['clientId'] for c in realm['clients'] if c.get('bearerOnly')}=={'agrosphere-api','estate-service','spatial-service'}
+example=dict(line.split('=',1) for line in (ROOT/'.env.example').read_text().splitlines() if line and not line.startswith('#') and '=' in line)
+passwords=[key for key in example if key.endswith('_PASSWORD')]
+assert len(passwords)==10 and all('REPLACE' in example[key] for key in passwords)
+if '--local' in sys.argv:
+    from platform_support import configuration
+    local=configuration()
+    values=[local.get(key,'') for key in passwords]
+    assert all(len(value)>=16 and 'REPLACE' not in value for value in values),'Configure private local passwords; values are not printed'
+    assert len(set(values))==len(values),'Use distinct local passwords'
+    assert int(local.get('GATEWAY_RATE_LIMIT',120))>0
+    assert 0<=float(local.get('TRACING_SAMPLE_PROBABILITY',1))<=1
+    for key in ['GATEWAY_MAX_BODY_BYTES','ESTATE_MAX_BODY_BYTES','SPATIAL_MAX_BODY_BYTES']:
+        assert 1<=int(local.get(key,2097152))<=16777216
+    for key in ['GATEWAY_CONNECT_TIMEOUT','GATEWAY_READ_TIMEOUT']:
+        assert re.fullmatch(r'[1-9][0-9]*(?:ms|s|m)',local.get(key,'2s'))
+    print('PASS: private local environment is complete, distinct and within configured bounds; secrets omitted')
 print('PASS: isolated platform configuration, health dependencies, loopback exposure, trusted identity, pinned contracts and workflows')
