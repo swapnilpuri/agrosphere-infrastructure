@@ -45,7 +45,7 @@ class LoginForm(HTMLParser):
         if tag=='form' and attrs.get('id')=='kc-form-login':self.action=attrs.get('action')
 
 class LocalhostCookiePolicy(http.cookiejar.DefaultCookiePolicy):
-    # Browsers treat HTTP localhost as a trustworthy origin and send Secure cookies there.
+    # Chromium treats HTTP localhost as a trustworthy origin and send Secure cookies there.
     # Match that behavior only for loopback; retain normal Secure policy everywhere else.
     def return_ok_secure(self,cookie,request):
         url=urllib.parse.urlparse(request.get_full_url())
