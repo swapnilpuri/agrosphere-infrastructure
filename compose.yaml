@@ -1,0 +1,202 @@
+name: agrosphere-local
+services:
+  postgres:
+    image: postgis/postgis:17-3.6
+    environment:
+      POSTGRES_USER: agrosphere_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set private admin password}
+      ESTATE_DB_PASSWORD: ${ESTATE_DB_PASSWORD:?Set private service password}
+      SPATIAL_DB_PASSWORD: ${SPATIAL_DB_PASSWORD:?Set private service password}
+      OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD:?Set private service password}
+      TELEMETRY_DB_PASSWORD: ${TELEMETRY_DB_PASSWORD:?Set private service password}
+      ANALYTICS_DB_PASSWORD: ${ANALYTICS_DB_PASSWORD:?Set private service password}
+      AI_DB_PASSWORD: ${AI_DB_PASSWORD:?Set private service password}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set private service password}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-services.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U agrosphere_admin -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  rabbitmq:
+    image: rabbitmq:4.3.6-management
+    environment:
+      RABBITMQ_DEFAULT_USER: agrosphere
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set private RabbitMQ password}
+    ports: ["127.0.0.1:5672:5672", "127.0.0.1:15672:15672"]
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  rabbitmq-init:
+    image: python:3.12-alpine
+    command: ["python", "/scripts/init_broker.py"]
+    environment:
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set private broker password}
+    volumes:
+      - ./scripts/init_broker.py:/scripts/init_broker.py:ro
+      - ./rabbitmq/definitions.json:/scripts/definitions.json:ro
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    profiles: [iot]
+    ports: ["127.0.0.1:1883:1883"]
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./local-secrets/mosquitto.passwd:/mosquitto/config/passwords:ro
+      - mosquitto-data:/mosquitto/data
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5.7
+    profiles: [identity, apps]
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: agrosphere_admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set private Keycloak admin password}
+      KC_HOSTNAME: ${OIDC_PUBLIC_URL:-http://localhost:8180}
+      KC_HEALTH_ENABLED: "true"
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/agrosphere_keycloak
+      KC_DB_USERNAME: agrosphere_keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set private Keycloak DB password}
+    volumes: ["./keycloak/agrosphere-realm.json:/opt/keycloak/data/import/agrosphere-realm.json:ro"]
+    ports: ["127.0.0.1:8180:8080"]
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "{ printf 'HEAD /health/ready HTTP/1.0\r\n\r\n' >&0; grep 'HTTP/1.0 200'; } 0<>/dev/tcp/localhost/9000"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+  otel-collector:
+    image: agrosphere-otel-collector:0.2.0
+    build: ./otel
+    profiles: [observability, apps]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports: ["127.0.0.1:4317:4317", "127.0.0.1:4318:4318"]
+    volumes: ["./otel/collector.yaml:/etc/otelcol/config.yaml:ro"]
+    healthcheck:
+      test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://localhost:13133/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      jaeger:
+        condition: service_healthy
+  jaeger:
+    image: agrosphere-jaeger:0.2.0
+    build: ./jaeger
+    profiles: [observability, apps]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports: ["127.0.0.1:16686:16686"]
+    healthcheck:
+      test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://localhost:14269/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  estate:
+    image: ${ESTATE_IMAGE:-agrosphere-estate-service:0.2.1}
+    build: ../agrosphere-estate-service
+    profiles: [apps]
+    environment:
+      ESTATE_LIMITS_BODY_BYTES: ${ESTATE_MAX_BODY_BYTES:-2097152}
+      DB_URL: jdbc:postgresql://postgres:5432/agrosphere_estate
+      DB_USER: agrosphere_estate
+      DB_PASSWORD: ${ESTATE_DB_PASSWORD:?Set private service password}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: agrosphere
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set private broker password}
+      OIDC_ISSUER_URI: ${OIDC_PUBLIC_URL:-http://localhost:8180}/realms/agrosphere
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/agrosphere/protocol/openid-connect/certs
+      OUTBOX_PUBLICATION_ENABLED: "true"
+      EVENT_DATA_PROVENANCE: SIMULATED
+      LOGGING_STRUCTURED_JSON_ADD_SERVICE: agrosphere-estate-service
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLE_PROBABILITY:-1.0}
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: logstash
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "{ printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&0; grep '200'; } 0<>/dev/tcp/localhost/8081"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq-init: {condition: service_completed_successfully}
+      keycloak: {condition: service_healthy}
+      spatial: {condition: service_healthy}
+      otel-collector: {condition: service_healthy}
+  spatial:
+    image: ${SPATIAL_IMAGE:-agrosphere-spatial-service:0.2.1}
+    build: ../agrosphere-spatial-service
+    profiles: [apps]
+    environment:
+      SPATIAL_LIMITS_BODY_BYTES: ${SPATIAL_MAX_BODY_BYTES:-2097152}
+      DB_URL: jdbc:postgresql://postgres:5432/agrosphere_spatial
+      DB_USER: agrosphere_spatial
+      DB_PASSWORD: ${SPATIAL_DB_PASSWORD:?Set private service password}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: agrosphere
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set private broker password}
+      OIDC_ISSUER_URI: ${OIDC_PUBLIC_URL:-http://localhost:8180}/realms/agrosphere
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/agrosphere/protocol/openid-connect/certs
+      ESTATE_CONSUMER_ENABLED: "true"
+      OUTBOX_PUBLICATION_ENABLED: "true"
+      LOGGING_STRUCTURED_JSON_ADD_SERVICE: agrosphere-spatial-service
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLE_PROBABILITY:-1.0}
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "{ printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&0; grep '200'; } 0<>/dev/tcp/localhost/8082"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq-init: {condition: service_completed_successfully}
+      keycloak: {condition: service_healthy}
+      otel-collector: {condition: service_healthy}
+  gateway:
+    image: ${GATEWAY_IMAGE:-agrosphere-api-gateway:0.2.0}
+    build: ../agrosphere-api-gateway
+    profiles: [apps]
+    ports: ["127.0.0.1:8080:8080"]
+    environment:
+      GATEWAY_LIMITS_BODY_BYTES: ${GATEWAY_MAX_BODY_BYTES:-2097152}
+      ESTATE_SERVICE_URL: http://estate:8081
+      SPATIAL_SERVICE_URL: http://spatial:8082
+      OIDC_ISSUER_URI: ${OIDC_PUBLIC_URL:-http://localhost:8180}/realms/agrosphere
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/agrosphere/protocol/openid-connect/certs
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+      GATEWAY_RATE_LIMIT: ${GATEWAY_RATE_LIMIT:-120}
+      GATEWAY_CONNECT_TIMEOUT: ${GATEWAY_CONNECT_TIMEOUT:-2s}
+      GATEWAY_READ_TIMEOUT: ${GATEWAY_READ_TIMEOUT:-10s}
+      LOGGING_STRUCTURED_JSON_ADD_SERVICE: agrosphere-api-gateway
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      TRACING_SAMPLE_PROBABILITY: ${TRACING_SAMPLE_PROBABILITY:-1.0}
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "{ printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&0; grep '200'; } 0<>/dev/tcp/localhost/8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      estate: {condition: service_healthy}
+      spatial: {condition: service_healthy}
+volumes:
+  postgres-data:
+  rabbitmq-data:
+  mosquitto-data:
+
+networks:
+  default:
+    name: ${COMPOSE_PROJECT_NAME:-agrosphere-local}-dev

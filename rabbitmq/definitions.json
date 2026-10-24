@@ -1,0 +1,66 @@
+{
+  "exchanges": [
+    {
+      "name": "agrosphere.domain",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "agrosphere.dev.spatial.v1",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-max-length": 10000
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.spatial.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.SpatialFeatureCreated.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.spatial.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.SpatialFeatureUpdated.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.spatial.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.SpatialBoundaryChanged.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.spatial.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.SpatialLayerCreated.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.spatial.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.DigitalTwinAssetRegistered.v1",
+      "arguments": {}
+    }
+  ]
+}

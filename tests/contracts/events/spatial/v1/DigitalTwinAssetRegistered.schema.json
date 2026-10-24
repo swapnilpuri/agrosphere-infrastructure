@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.agrosphere.invalid/events/spatial/v1/DigitalTwinAssetRegistered.schema.json",
+  "title": "DigitalTwinAssetRegistered v1",
+  "type": "object",
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "const": "DigitalTwinAssetRegistered"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "correlationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sourceService": {
+      "const": "spatial-service"
+    },
+    "estateId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "dataProvenance": {
+          "type": "string",
+          "enum": [
+            "REAL",
+            "SIMULATED",
+            "ESTIMATED",
+            "PREDICTED"
+          ]
+        }
+      },
+      "required": [
+        "assetId",
+        "dataProvenance"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "eventId",
+    "eventType",
+    "eventVersion",
+    "occurredAt",
+    "correlationId",
+    "sourceService",
+    "estateId",
+    "payload"
+  ],
+  "additionalProperties": false
+}

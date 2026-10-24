@@ -1,0 +1,51 @@
+name: Released platform integration
+on:
+  workflow_dispatch:
+    inputs:
+      gateway_image:
+        description: Independently published gateway image (prefer digest)
+        required: true
+        type: string
+      estate_image:
+        description: Independently published Estate image (prefer digest)
+        required: true
+        type: string
+      spatial_image:
+        description: Independently published Spatial image (prefer digest)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GATEWAY_IMAGE: ${{ inputs.gateway_image }}
+      ESTATE_IMAGE: ${{ inputs.estate_image }}
+      SPATIAL_IMAGE: ${{ inputs.spatial_image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-test.txt
+      - run: python scripts/init_local.py
+      - name: Pull independent application releases
+        run: |
+          docker pull "$GATEWAY_IMAGE"
+          docker pull "$ESTATE_IMAGE"
+          docker pull "$SPATIAL_IMAGE"
+      - run: docker compose --profile apps build jaeger otel-collector
+      - run: docker compose --profile apps up -d --no-build --wait --wait-timeout 240
+      - run: python scripts/configure_identity.py
+      - run: python scripts/smoke_platform.py --faults
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-acceptance
+          path: target/platform-smoke.json
+          if-no-files-found: ignore
+      - name: Remove ephemeral CI resources
+        if: always()
+        run: docker compose --profile apps down

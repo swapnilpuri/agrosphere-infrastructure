@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.agrosphere.invalid/events/spatial/v1/SpatialBoundaryChanged.schema.json",
+  "title": "SpatialBoundaryChanged v1",
+  "type": "object",
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "const": "SpatialBoundaryChanged"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "correlationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sourceService": {
+      "const": "spatial-service"
+    },
+    "estateId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "referenceEntityId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "geometryVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "featureId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "referenceEntityType": {
+          "enum": [
+            "ESTATE",
+            "DIVISION",
+            "BLOCK"
+          ]
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "INACTIVE"
+          ]
+        },
+        "dataProvenance": {
+          "type": "string",
+          "enum": [
+            "REAL",
+            "SIMULATED",
+            "ESTIMATED",
+            "PREDICTED"
+          ]
+        }
+      },
+      "required": [
+        "featureId",
+        "referenceEntityType",
+        "status",
+        "dataProvenance"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "eventId",
+    "eventType",
+    "eventVersion",
+    "occurredAt",
+    "correlationId",
+    "sourceService",
+    "estateId",
+    "referenceEntityId",
+    "geometryVersion",
+    "payload"
+  ],
+  "additionalProperties": false
+}

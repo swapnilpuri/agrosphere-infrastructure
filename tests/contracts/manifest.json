@@ -1,0 +1,17 @@
+{
+  "contractsRelease": "0.3.0",
+  "source": "agrosphere-contracts",
+  "files": {
+    "estate.openapi.json": "2e7a0b028d91f9f2996289955d52d84e14d65e813582ade46772e59cd504a060",
+    "events/spatial/v1/DigitalTwinAssetRegistered.schema.json": "d46b29fb3171339c986e5e2dee526c080965c1314434a81b6983a0b5a9b0c91b",
+    "events/spatial/v1/SpatialBoundaryChanged.schema.json": "ee2883c66b3b8606799f73733c14761a0f2c617e22f1e12c2d3c4adfce1b85d7",
+    "events/spatial/v1/SpatialFeatureCreated.schema.json": "4edd367673b4f8d0c634100265676b36eaed92eb4f1cbe9345202180d120ff4c",
+    "events/spatial/v1/SpatialFeatureUpdated.schema.json": "d5aff1cb168c96453ef79e329d903b2495d88a3c5c5069dcb673ecacf43f701a",
+    "events/spatial/v1/SpatialLayerCreated.schema.json": "569fa41811f3728f478ccd7ca4942031b92b03f68303b17ddafcc1bad86dece5",
+    "events/v2/EstateCreated.schema.json": "9f6d63c477759e2a3a7fcce3a1444febad0cef7e59548c6da7a04c160882d668",
+    "events/v2/EstateUpdated.schema.json": "f74b3829d2889a363792df10eb3c05dfdfc2b553a75e51a5ec9b20de2e2a46bc",
+    "events/v2/PlantationBlockCreated.schema.json": "d7a6a5bff8a8c1fc3fa930c044098dbbf0877a944d87109cd25e00417c0cadee",
+    "events/v2/PlantationBlockUpdated.schema.json": "c99731baf15262ef3ddefac0dc64eacf76bbd1f82c87d12f8cb1077dcbdfcd02",
+    "spatial.openapi.json": "ca853e9ff9e8f8b752854ceaaf001622490b2a089478757320c356d15b301f74"
+  }
+}

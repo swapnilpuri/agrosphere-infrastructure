@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.agrosphere.invalid/events/v2/EstateCreated.schema.json",
+  "title": "EstateCreated v2",
+  "type": "object",
+  "required": [
+    "eventId",
+    "eventType",
+    "eventVersion",
+    "occurredAt",
+    "correlationId",
+    "sourceService",
+    "estateId",
+    "entityId",
+    "dataProvenance",
+    "payload"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "const": "EstateCreated"
+    },
+    "eventVersion": {
+      "const": 2
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "correlationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sourceService": {
+      "const": "estate-service"
+    },
+    "estateId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "entityId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dataProvenance": {
+      "enum": [
+        "REAL",
+        "SIMULATED",
+        "ESTIMATED",
+        "PREDICTED"
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "id",
+        "estateCode",
+        "name",
+        "countryCode",
+        "timezone",
+        "totalAreaHectares",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "estateCode": {
+          "type": "string",
+          "pattern": "^[A-Z0-9][A-Z0-9_-]*$",
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "countryCode": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "totalAreaHectares": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9999999999.9999,
+          "multipleOf": 0.0001
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "INACTIVE"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
