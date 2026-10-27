@@ -14,4 +14,6 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 SELECT format('GRANT ALL ON SCHEMA public TO %I', :'role') \gexec
 SQL
 done
+psql -X -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname agrosphere_operations \
+  --file /opt/agrosphere/provision_operations_runtime.sql
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname agrosphere_spatial -c 'CREATE EXTENSION IF NOT EXISTS postgis;'

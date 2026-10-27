@@ -36,7 +36,12 @@ for client in public:
 assert {c['clientId'] for c in realm['clients'] if c.get('bearerOnly')}=={'agrosphere-api','estate-service','spatial-service','operations-service'}
 example=dict(line.split('=',1) for line in (ROOT/'.env.example').read_text().splitlines() if line and not line.startswith('#') and '=' in line)
 passwords=[key for key in example if key.endswith('_PASSWORD')]
-assert len(passwords)==10 and all('REPLACE' in example[key] for key in passwords)
+assert len(passwords)==11 and all('REPLACE' in example[key] for key in passwords)
+operation_env=services['operations']['environment']
+assert operation_env['DB_USER']=='agrosphere_operations_app'
+assert operation_env['FLYWAY_USER']=='agrosphere_operations'
+assert operation_env['DB_PASSWORD']!=operation_env['FLYWAY_PASSWORD']
+assert 'OPERATIONS_APP_DB_PASSWORD' in services['postgres']['environment']
 if '--local' in sys.argv:
     from platform_support import configuration
     local=configuration()
