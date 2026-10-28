@@ -28,6 +28,15 @@
       "arguments": {
         "x-max-length": 10000
       }
+    },
+    {
+      "name": "agrosphere.dev.collections.v2",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-max-length": 10000
+      }
     }
   ],
   "bindings": [
@@ -117,6 +126,38 @@
       "destination": "agrosphere.dev.operations.v1",
       "destination_type": "queue",
       "routing_key": "agrosphere.TappingAssignmentCancelled.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.collections.v2",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.LatexCollectionRecorded.v2",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.collections.v2",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.DrcMeasurementRecorded.v2",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.collections.v2",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.LatexCollectionAdjusted.v2",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.collections.v2",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.LatexCollectionVoided.v2",
       "arguments": {}
     }
   ]

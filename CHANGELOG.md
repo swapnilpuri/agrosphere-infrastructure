@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased - 2026-10-27 local Milestone 3B
+
+Operations-only runtime/Flyway placeholder separation and idempotent operator provisioning tool; generated disposable credential proof. Separate durable bounded collection v2 sink and isolated Keycloak/Gateway collection acceptance. No private environment or active stack provisioning.
+
 ## 0.3.0 — 2026-10-24
 
 Operations Compose integration, audience and scoped operational roles, durable local event sink, disposable full-stack acceptance.

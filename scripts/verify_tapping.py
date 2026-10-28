@@ -14,7 +14,7 @@ def free_port():
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0));return sock.getsockname()[1]
 
-def main():
+def main(extra_acceptance=None):
     project='agrosphere-3a-check-'+uuid.uuid4().hex[:8]
     oidc_port,gateway_port=free_port(),free_port()
     while gateway_port==oidc_port: gateway_port=free_port()
@@ -28,8 +28,8 @@ def main():
         override.write_text('services:\n'+''.join(f'  {name}:\n    ports: !override []\n' for name in ['postgres','rabbitmq','jaeger','otel-collector'])+f'  keycloak:\n    ports: !override ["127.0.0.1:{oidc_port}:8080"]\n  gateway:\n    ports: !override ["127.0.0.1:{gateway_port}:8080"]\n')
         command=['docker','compose','--project-name',project,'--env-file',str(Path(temporary)/'empty.env'),'-f',str(ROOT/'compose.yaml'),'-f',str(override),'--profile','apps']
         (Path(temporary)/'empty.env').write_text('')
-        def compose(*args,check=True):
-            result=subprocess.run([*command,*args],cwd=ROOT,env=env,capture_output=True,text=True)
+        def compose(*args,check=True,environment=None,input_text=None):
+            result=subprocess.run([*command,*args],cwd=ROOT,env={**env,**(environment or {})},input=input_text,capture_output=True,text=True)
             if check and result.returncode:
                 # Docker build output contains no supplied credentials; do not print config/logs.
                 raise RuntimeError('Isolated Compose '+args[0]+' failed; '+(result.stdout+result.stderr if args[0]=='build' else result.stderr[-1200:]))
@@ -45,6 +45,8 @@ def main():
             realm=config['OIDC_PUBLIC_URL']+'/admin/realms/agrosphere'
             kc=admin_token(config)
             def user(name,role):
+                nonlocal kc
+                kc=admin_token(config)
                 value={'username':'verify-'+name,'password':secrets.token_urlsafe(28)}
                 request(realm+'/users','POST',{'username':value['username'],'enabled':True,'emailVerified':True,'firstName':'Verification','lastName':name,'email':name+'@example.invalid','credentials':[{'type':'password','value':value['password'],'temporary':False}]},kc,expected=201)
                 matches,_=request(realm+'/users?exact=true&username='+value['username'],token=kc)
@@ -58,7 +60,7 @@ def main():
             assert 'PLATFORM_ADMIN' in claims.get('realm_access',{}).get('roles',[]),'Administrator role missing from trusted claim'
             assert 'operations-service' in claims.get('aud',[]),'Operations audience missing'
             assert claims.get('sub')==admin['id'],'Canonical subject missing'
-            base=f'http://localhost:{gateway_port}/api/v1'
+            base=f'http://127.0.0.1:{gateway_port}/api/v1'
             def call(path,method='GET',body=None,bearer=token,status=200):
                 headers={'Authorization':'Bearer '+bearer,'Content-Type':'application/json'}
                 req=urllib.request.Request(base+path,data=None if body is None else json.dumps(body).encode(),method=method,headers=headers)
@@ -99,12 +101,14 @@ def main():
             sql="select count(*) from outbox_event where published_at is not null"
             published=0
             for attempt in range(20):
-                result=compose('exec','-T','-e','PGPASSWORD='+config['OPERATIONS_DB_PASSWORD'],'postgres','psql','-h','127.0.0.1','-U','agrosphere_operations','-d','agrosphere_operations','-Atc',sql)
+                result=compose('exec','-T','-e','PGPASSWORD','postgres','psql','-h','127.0.0.1','-U','agrosphere_operations_app','-d','agrosphere_operations','-Atc',sql,environment={'PGPASSWORD':config['OPERATIONS_APP_DB_PASSWORD']})
                 published=int(result.stdout.strip())
                 if published==4:break
                 time.sleep(0.5)
             assert published==4,'Outbox not confirmed/routed'
             print('PASS: isolated Compose health, independent Docker builds, real Keycloak PKCE/JWT, Gateway routing, Estate validation for worker, generation deduplication, completion retry, auditor denial, summary and four confirmed events.',flush=True)
+            if extra_acceptance:
+                extra_acceptance(config=config,compose=compose,call=call,user=user,base=base,estate=estate,block=block,assignment=assignment,worker=worker,worker_token=worker_token,admin=admin,admin_token=token,audit_token=audit_token,realm=realm,keycloak_token=kc)
         finally:
             compose('down','--volumes','--remove-orphans',check=False)
             print('Removed only isolated verification project '+project,flush=True)

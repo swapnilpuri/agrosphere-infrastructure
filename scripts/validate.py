@@ -60,4 +60,12 @@ print('PASS: isolated platform configuration, health dependencies, loopback expo
 assert {"FIELD_WORKER","FIELD_SUPERVISOR","AUDITOR","PLANTATION_ADMIN"}<={r["name"] for r in realm["roles"]["realm"]}
 assert "operations-service" in {m["config"].get("included.custom.audience") for m in mappers}
 
+topology=json.loads((ROOT/'rabbitmq/definitions.json').read_text())
+sink=next(q for q in topology['queues'] if q['name']=='agrosphere.dev.collections.v2')
+assert sink['durable'] and not sink['auto_delete'] and sink['arguments']['x-max-length']==10000
+assert {b['routing_key'] for b in topology['bindings'] if b['destination']==sink['name']}=={
+    'agrosphere.'+name+'.v2' for name in ['LatexCollectionRecorded','DrcMeasurementRecorded','LatexCollectionAdjusted','LatexCollectionVoided']}
+assert len([b for b in topology['bindings'] if b['destination']=='agrosphere.dev.operations.v1'])==6
+print('PASS: separate durable bounded collection v2 sink; six tapping v1 bindings retained')
+
 assert any(m["protocolMapper"]=="oidc-sub-mapper" and m["config"].get("access.token.claim")=="true" for m in mappers)
