@@ -68,4 +68,10 @@ assert {b['routing_key'] for b in topology['bindings'] if b['destination']==sink
 assert len([b for b in topology['bindings'] if b['destination']=='agrosphere.dev.operations.v1'])==6
 print('PASS: separate durable bounded collection v2 sink; six tapping v1 bindings retained')
 
+workforce=next(q for q in topology['queues'] if q['name']=='agrosphere.dev.workforce.v1')
+assert workforce['durable'] and not workforce['auto_delete'] and workforce['arguments']['x-max-length']==10000
+assert {b['routing_key'] for b in topology['bindings'] if b['destination']==workforce['name']}=={
+    'agrosphere.'+name+'.v1' for name in ['WorkerRegistrationCreated','WorkerRegistrationChanged','WorkerAttendanceRecorded','WorkerAttendanceChanged']}
+print('PASS: separate durable bounded workforce v1 sink; no deployment applied')
+
 assert any(m["protocolMapper"]=="oidc-sub-mapper" and m["config"].get("access.token.claim")=="true" for m in mappers)

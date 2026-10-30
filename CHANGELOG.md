@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — 2026-10-29 WA-1
+
+Add four explicit workforce v1 bindings to a separate bounded durable development sink and generated-only complete WA-1/3A/3B platform acceptance. No existing environment change.
+
 ## Unreleased - 2026-10-27 local Milestone 3B
 
 Operations-only runtime/Flyway placeholder separation and idempotent operator provisioning tool; generated disposable credential proof. Separate durable bounded collection v2 sink and isolated Keycloak/Gateway collection acceptance. No private environment or active stack provisioning.

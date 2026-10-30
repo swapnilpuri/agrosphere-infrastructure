@@ -1,5 +1,9 @@
 # AgroSphere local platform
 
+## WA-1 local status — 2026-10-29
+
+Run `python scripts/verify_workforce.py` for generated-only WA-1 acceptance, including retained tapping/collection workflows, real Keycloak/Gateway/Estate, SIMULATED-only worker lifecycle, scope, original receipt replay and broker recovery. It uses a new random Compose project/ports/credentials and removes only its project in finally. The new durable agrosphere.dev.workforce.v1 sink has four explicit bindings and a 10,000-message bound. Existing stacks/realms are not changed. D08/D09 remain gates.
+
 Milestone 1C, infrastructure release 0.2.0. This independent repository orchestrates Gateway 0.2.0, Estate 0.2.1 and Spatial 0.2.1. Estate retains Java 25; Spatial retains Java 21; both use Boot 4.0.9. Each application keeps its own build, Dockerfile, migrations, tests, CI and release version. No parent build, Git repository, submodules or shared persistence models are introduced.
 
 ## Start locally
