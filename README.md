@@ -111,3 +111,11 @@ Run python scripts/verify_tapping.py for disposable full-stack acceptance. It cr
 Operations now has distinct runtime and Flyway-owner credentials. See [Operations runtime credentials](docs/OPERATIONS_RUNTIME_CREDENTIALS.md) before any independently authorized existing-environment upgrade. Public configuration contains placeholders only; current tests generate their own secrets without reading .env or local-secrets.
 
 Run python scripts/verify_operations_credentials.py for isolated provisioning/idempotence/privilege checks. Run python scripts/verify_collections.py for the complete isolated tapping plus collection workflow with independent Docker builds, fresh volumes, generated credentials, real Keycloak PKCE, Gateway forwarding, scoped collection APIs, summaries/history and broker outage/recovery. The script uses an explicit empty env-file and removes only its random Compose project in finally. It never provisions the developer stack. scripts/verify_tapping.py remains independently runnable with its original assertions. Collection v2 events have a separate durable sink, agrosphere.dev.collections.v2, bounded to 10,000 messages with four explicit bindings; six tapping v1 bindings are retained.
+
+## AN-1 generated-only verification — 2026-10-31
+
+scripts/verify_alerts.py extends retained II/WA/3B/3A drills in a new random generated-only Compose project. Guarded enable_generated_alerts changes only its own disposable Operations override and exact generated subjects; no existing .env/accounts/stack touched. Existing broker topology is unchanged; no alert queue. See Architecture ALERTS_NOTIFICATIONS_VERIFICATION.md.
+
+## Generated privacy acceptance — 2026-10-31
+
+Run python scripts/verify_alert_privacy.py only for a new disposable generated project. It independently builds the apps, exercises actual Keycloak/Gateway v2 alerts and retained II/WA/3B/3A, then removes only its random project. The helper privacy-mode keyword defaults false, preserving the original legacy drill. It never reads developer private configuration or upgrades the existing stack. Actual log/backup retention configuration and unattended maintenance remain operating gates; no new privacy queue/event is introduced.

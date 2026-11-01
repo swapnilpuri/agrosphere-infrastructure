@@ -75,3 +75,8 @@ assert {b['routing_key'] for b in topology['bindings'] if b['destination']==work
 print('PASS: separate durable bounded workforce v1 sink; no deployment applied')
 
 assert any(m["protocolMapper"]=="oidc-sub-mapper" and m["config"].get("access.token.claim")=="true" for m in mappers)
+
+crop=next(q for q in topology['queues'] if q['name']=='agrosphere.dev.crop-health.v1')
+assert crop['durable'] and crop['arguments']['x-max-length']==10000 and crop['arguments']['x-dead-letter-routing-key']=='agrosphere.dev.crop-health.v1.dlq'
+assert {b['routing_key'] for b in topology['bindings'] if b['destination']==crop['name']}=={'agrosphere.'+name+'.v1' for name in ['FieldInspectionRecorded','FieldInspectionChanged','CropHealthIncidentReported','CropHealthIncidentChanged']}
+print('PASS: separate durable bounded crop-health v1 sink/DLQ; no deployment applied')

@@ -107,8 +107,15 @@ def main(extra_acceptance=None):
                 time.sleep(0.5)
             assert published==4,'Outbox not confirmed/routed'
             print('PASS: isolated Compose health, independent Docker builds, real Keycloak PKCE/JWT, Gateway routing, Estate validation for worker, generation deduplication, completion retry, auditor denial, summary and four confirmed events.',flush=True)
+            def enable_generated_alerts(subjects, privacy=False):
+                # Only this function's new random project/override, never an existing stack.
+                assert project.startswith('agrosphere-3a-check-') and subjects
+                for subject in subjects: assert str(uuid.UUID(subject))==subject
+                with override.open('a') as out:
+                    out.write('  operations:\n    environment:\n      OPERATIONS_ALERTS_GENERATEDTESTMODE: '+('\"false\"' if privacy else '\"true\"')+'\n      OPERATIONS_ALERTS_PRIVACYGENERATEDTESTMODE: '+('\"true\"' if privacy else '\"false\"')+'\n      OPERATIONS_ALERTS_GENERATEDSUBJECTS: '+json.dumps(','.join(subjects))+'\n')
+                compose('up','-d','--no-deps','--no-build','--wait','--wait-timeout','90','operations')
             if extra_acceptance:
-                extra_acceptance(config=config,compose=compose,call=call,user=user,base=base,estate=estate,block=block,assignment=assignment,worker=worker,worker_token=worker_token,admin=admin,admin_token=token,audit_token=audit_token,realm=realm,keycloak_token=kc)
+                extra_acceptance(config=config,compose=compose,call=call,user=user,base=base,estate=estate,block=block,assignment=assignment,worker=worker,worker_token=worker_token,admin=admin,admin_token=token,audit_token=audit_token,realm=realm,keycloak_token=kc,enable_generated_alerts=enable_generated_alerts)
         finally:
             compose('down','--volumes','--remove-orphans',check=False)
             print('Removed only isolated verification project '+project,flush=True)

@@ -46,6 +46,26 @@
       "arguments": {
         "x-max-length": 10000
       }
+    },
+    {
+      "name": "agrosphere.dev.crop-health.v1",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-max-length": 10000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "agrosphere.dev.crop-health.v1.dlq"
+      }
+    },
+    {
+      "name": "agrosphere.dev.crop-health.v1.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-max-length": 10000
+      }
     }
   ],
   "bindings": [
@@ -199,6 +219,38 @@
       "destination": "agrosphere.dev.workforce.v1",
       "destination_type": "queue",
       "routing_key": "agrosphere.WorkerAttendanceChanged.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.crop-health.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.FieldInspectionRecorded.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.crop-health.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.FieldInspectionChanged.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.crop-health.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.CropHealthIncidentReported.v1",
+      "arguments": {}
+    },
+    {
+      "source": "agrosphere.domain",
+      "vhost": "/",
+      "destination": "agrosphere.dev.crop-health.v1",
+      "destination_type": "queue",
+      "routing_key": "agrosphere.CropHealthIncidentChanged.v1",
       "arguments": {}
     }
   ]
