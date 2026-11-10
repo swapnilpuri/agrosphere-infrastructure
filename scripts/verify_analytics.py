@@ -25,13 +25,13 @@ def digest(value):
 
 
 def docker(*args, input_text=None, check=True):
-    value = subprocess.run(['docker', *args], input=input_text, capture_output=True, text=True)
+    value = subprocess.run(['docker', *args], input=input_text, capture_output=True, text=True, encoding='utf-8', errors='replace')
     if check and value.returncode:
         raise RuntimeError('Owned Analytics Docker operation failed: ' + args[0])
     return value
 
 
-def main():
+def main(extra_acceptance=None):
     record = {'status': 'NOT_RUN', 'scope': 'SIMULATED owned disposable platform only'}
 
     def acceptance(**c):
@@ -299,6 +299,10 @@ with urllib.request.urlopen(r,timeout=10) as response: print(json.dumps(json.loa
                 record.update(admissionProfile='APPROVED_FINITE_GENERATED', admissionDiagnostics=2, oversizedSchemaValidation=True,
                               exponentRejectedBeforeArithmetic=True, admissionPauseRecovery=True, admissionNoProjectionMutation=True)
                 print('PASS: generated Operations -> broker -> materialized Analytics -> Gateway -> Web; duplicates, outage, diagnostics, restart, rebuild and exact oracle.', flush=True)
+                if extra_acceptance:
+                    extra_acceptance(**c, analytics_container=container, analytics_sql=sql,
+                                     broker=broker, publish=publish, source_messages=messages,
+                                     directory=directory, run=run)
         finally:
             if container:
                 assert docker('inspect', '-f', '{{index .Config.Labels "agrosphere.anl.run"}}', container).stdout.strip() == run
