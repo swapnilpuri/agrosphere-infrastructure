@@ -1,3 +1,7 @@
+## Unreleased — 2026-11-10 M4 verification
+
+Add generated-only verify_m4.py, extending the existing ANL-01 acceptance callback without changing default topology or loading private environment files. New owned AI principals/queue/database guard, source replay, immutable evaluation, scope/privilege/concurrency/rollback/recovery and real PKCE/Web checks. Explicit generated-session renewal preserves expiry validation. Retained browser badge selector scoped to its production region. No existing-target, production, REAL, Git or AEO action.
+
 # Changelog
 
 ## Unreleased - approved ANL-01 finite admission

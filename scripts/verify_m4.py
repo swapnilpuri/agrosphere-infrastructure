@@ -84,6 +84,9 @@ print(len(messages))
 
         try:
             print("Building independent M4 AI image...", flush=True)
+            public_names = ['main.py', 'adapters/codec.py', 'adapters/store.py', 'adapters/runtime.py', 'adapters/consumer.py', 'domain/baselines.py', 'application/assistant.py', 'sql/m4.sql', 'contracts/RELEASE.json']
+            public_root = ROOT.parent / 'agrosphere-ai-service/src/agrosphere_ai'
+            source_hashes = {name: sha((public_root / name).read_bytes()) for name in public_names}
             docker("build", "-t", image, str(ROOT.parent / "agrosphere-ai-service"))
             start = datetime.now(ZoneInfo("Asia/Colombo")).date() - timedelta(days=63)
             generator = docker("create", "--name", project + "-m4-generator", "--label", "agrosphere.m4.run=" + run,
@@ -139,7 +142,7 @@ print(len(messages))
                 raise RuntimeError("Owned M4 migration failed")
             assert sql("SELECT version_num FROM alembic_version") == "0002"
             assert sql("SELECT count(*) FROM outbox_event") == "0"
-            sql("GRANT SELECT,INSERT ON ai_source_revision,ai_conflict,ai_dataset,ai_model,ai_evaluation,ai_evaluation_source TO " + runtime + ";")
+            sql("GRANT SELECT,INSERT ON ai_source_revision,ai_availability,ai_conflict,ai_dataset,ai_model,ai_evaluation,ai_evaluation_source TO " + runtime + ";")
             for statement in ["CREATE TABLE denied(id int)", "CREATE TEMP TABLE denied(id int)", "TRUNCATE ai_source_revision", "DELETE FROM ai_model", "UPDATE ai_dataset SET corpus_hash='bad'"]:
                 assert sql(statement, as_runtime=True, check=False).returncode != 0
             docker("start", container)
@@ -149,6 +152,9 @@ print(len(messages))
             evaluation_id = sql("SELECT evaluation_id FROM ai_evaluation")
             assert len(evaluation_id) == 64
             assert sql("SELECT count(*) FROM ai_model") == "4" and sql("SELECT count(*) FROM ai_evaluation_source") == "126"
+            hash_code = "import json,hashlib; from importlib.resources import files; names=json.loads(input()); p=files('agrosphere_ai'); print(json.dumps({n:hashlib.sha256(p.joinpath(n).read_bytes()).hexdigest() for n in names}))"
+            assert json.loads(ai_command('python', '-c', hash_code, input_text=json.dumps(public_names)).stdout) == source_hashes
+            record['packagedSourceHashes'] = source_hashes
             # The seven actual Operations outbox envelopes are replayed unchanged after AI binds its private queue.
             publish_many([{'payload': m['payload'], 'routing_key': m['routing_key']} for m in c['source_messages']])
             publish_many([{'payload': json.dumps(e['event']), 'routing_key': 'agrosphere.' + e['event']['eventType'] + '.v2'} for e in corpus['events']])
@@ -187,6 +193,10 @@ print(len(messages))
             assert c["call"](path + "/models/" + model_id + "?datasetId=" + dataset_id)["stage"] == "DEMO_ONLY"
             evaluation = c["call"](path + "/evaluations/" + evaluation_id + "?datasetId=" + dataset_id)
             assert len(evaluation["metrics"]) == 12
+            record['evaluationMetrics'] = evaluation['metrics']
+            record['anomalyCounts'] = evaluation['anomalyCounts']
+            record['splitBoundaries'] = evaluation['splitBoundaries']
+            record['sourceContracts'] = evaluation['sourceContracts']
             withheld = {**params, "asOf": datetime.combine(start + timedelta(days=3), datetime.min.time(), zone).astimezone(timezone.utc).isoformat()}
             del withheld["labelAsOf"]
             assert c["call"](path + "/production/baselines?" + urlencode(withheld))["targets"][0]["status"] == "INSUFFICIENT_HISTORY"
@@ -209,23 +219,100 @@ print(len(messages))
             # Immutable records reject even migration-owner UPDATE; transaction rollback preserves data.
             assert sql("UPDATE ai_model SET body='{}'::jsonb", check=False).returncode != 0
             assert sql("SELECT count(*) FROM ai_model") == "4"
+            # Real duplicate concurrency and rollback under the runtime role; no existing-target state involved.
+            concurrency_code = '''import json,sys,uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime,timezone
+from agrosphere_ai.adapters.runtime import configured_runtime
+from agrosphere_ai.adapters.codec import parse_event
+r=configured_runtime();e=json.load(sys.stdin);e['eventId']=str(uuid.uuid4());e['aggregateId']=str(uuid.uuid4());e['payload']['collection']['id']=e['aggregateId'];raw=json.dumps(e).encode()
+def ingest(_): return r.store.ingest(parse_event(raw,datetime.now(timezone.utc)))
+with ThreadPoolExecutor(max_workers=4) as pool: outcomes=list(pool.map(ingest,range(8)))
+assert outcomes.count('COMMITTED')==1 and outcomes.count('DUPLICATE')==7,outcomes
+with r.store.connection() as c:
+ before=c.execute('SELECT count(*) FROM ai_conflict').fetchone()[0]
+ c.execute('SAVEPOINT rollback_probe');s=r.guard.value['scopes'][0]
+ root=c.execute('SELECT event_id,body_hash FROM ai_source_revision LIMIT 1').fetchone()
+ c.execute('INSERT INTO ai_conflict(estate_id,block_id,event_id,body_hash,source_at) VALUES (%s,%s,%s,%s,clock_timestamp()) ON CONFLICT DO NOTHING',(s['estateId'],s['blockId'],root[0],root[1]))
+ c.execute('ROLLBACK TO SAVEPOINT rollback_probe')
+ assert c.execute('SELECT count(*) FROM ai_conflict').fetchone()[0]==before
+print('PASS: one concurrent effect and rollback')
+'''
+            ai_command('python', '-c', concurrency_code, input_text=json.dumps(corpus['events'][0]['event']))
+            assert sql("SELECT count(*) FROM ai_source_revision") == '134'
+            changed = json.loads(c['source_messages'][0]['payload'])
+            changed['payload']['collection']['workerId'] = 'SIMULATED-M4-CONFLICT'
+            publish(json.dumps(changed), c['source_messages'][0]['routing_key'])
+            wait(lambda: sql('SELECT count(*) FROM ai_conflict'), lambda n: int(n) >= 1, 'trusted conflict')
+            assert c['call'](url) == value and sql('SELECT evaluation_id FROM ai_evaluation') == evaluation_id
+            assert sql('SELECT count(*) FROM ai_source_revision') == '135'
+            commit_boundary_code = '''import json,sys,uuid,time
+from datetime import datetime,timezone,timedelta
+from agrosphere_ai.adapters.runtime import configured_runtime
+from agrosphere_ai.adapters.codec import parse_event
+from agrosphere_ai.adapters.reference_http import Unavailable
+from agrosphere_ai.domain.baselines import snapshot
+r=configured_runtime();e=json.load(sys.stdin);e['eventId']=str(uuid.uuid4());e['aggregateId']=str(uuid.uuid4());e['payload']['collection']['id']=e['aggregateId'];row=parse_event(json.dumps(e).encode(),datetime.now(timezone.utc))
+original=r.store.confirm_available
+def interrupt(*args): raise RuntimeError('simulated interruption after source commit')
+r.store.confirm_available=interrupt
+try:r.store.ingest(row)
+except RuntimeError:pass
+else:raise AssertionError('Interruption was not exercised')
+try:r.store.live_dataset(row.scope)
+except Unavailable:pass
+else:raise AssertionError('Unconfirmed receipt was exposed')
+time.sleep(.02);r.store.confirm_available=original
+assert r.store.ingest(row)=='DUPLICATE'
+ds=r.store.live_dataset(row.scope);stored=next(v for v in ds.revisions if v.event_id==row.event_id)
+assert stored.available_at>stored.first_received_at
+assert not any(v.event_id==row.event_id for v in snapshot(ds,stored.first_received_at+timedelta(microseconds=1)).rows)
+assert any(v.event_id==row.event_id for v in snapshot(ds,stored.available_at+timedelta(microseconds=1)).rows)
+print('PASS: conservative post-commit availability, interruption withholding and recovery')
+'''
+            ai_command('python', '-c', commit_boundary_code, input_text=json.dumps(corpus['events'][0]['event']))
+            assert sql('SELECT count(*) FROM ai_availability') == '136'
+            permission_code = '''import os,pika,psycopg
+from agrosphere_ai.adapters.runtime import configured_runtime
+r=configured_runtime()
+try: psycopg.connect(r.guard.dsn.replace('/agrosphere_ai','/agrosphere_estate'),connect_timeout=3)
+except psycopg.Error: pass
+else: raise AssertionError('Cross-database connection allowed')
+for operation in ['configure','domain-write','quarantine-read']:
+ c=pika.BlockingConnection(pika.URLParameters(os.environ['AI_AMQP_URL']));ch=c.channel()
+ try:
+  if operation=='configure': ch.queue_declare(queue='agrosphere.ai.denied.'+r.guard.value['runId'])
+  elif operation=='domain-write': ch.basic_publish(exchange='agrosphere.domain',routing_key='agrosphere.LatexCollectionRecorded.v2',body=b'{}');ch.confirm_delivery()
+  else: ch.basic_get('agrosphere.ai.quarantine')
+ except pika.exceptions.ChannelClosedByBroker as e: assert e.reply_code==403
+ else: raise AssertionError('Broker privilege too broad')
+ finally:
+  if c.is_open:c.close()
+print('PASS: database and broker privilege denials')
+'''
+            ai_command('python', '-c', permission_code)
+            c['call'](url.replace(c['estate'], str(uuid.uuid4())), status=403)
             browser_fixture = {"runId": run, "webOrigin": config["CORS_ALLOWED_ORIGINS"], "gateway": c["base"].removesuffix("/api/v1"),
                                "oidc": config["OIDC_PUBLIC_URL"], "username": c["admin"]["username"], "password": c["admin"]["password"],
                                "estateId": c["estate"], "blockId": c["block"], "datasetId": dataset_id, "evaluationId": evaluation_id,
-                               "asOf": as_of, "labelAsOf": label}
+                               "asOf": as_of, "labelAsOf": label, 'workerUsername': c['worker']['username'], 'workerPassword': c['worker']['password']}
             browser = directory / "m4-browser.json"
             browser.write_text(json.dumps(browser_fixture))
             result = subprocess.run(["node", "node_modules/@playwright/test/cli.js", "test", "--project=m4-live"], cwd=ROOT.parent / "agrosphere-web",
                                     env={**os.environ, "M4_LIVE_FIXTURE": str(browser), "AGRO_NO_PREVIEW": "1"}, capture_output=True, text=True, timeout=180)
             output = result.stdout + result.stderr
-            for secret in [db_password, rabbit_password, c["admin"]["password"], c["admin_token"], *active_tokens, *[v for k, v in config.items() if "PASSWORD" in k]]:
+            for secret in [db_password, rabbit_password, c["admin"]["password"], c['worker']['password'], c["admin_token"], *active_tokens, *[v for k, v in config.items() if "PASSWORD" in k]]:
                 output = output.replace(secret, "[REDACTED]")
             (ROOT / "target/m4-browser.log").write_text(output, encoding="utf-8")
             assert result.returncode == 0, "M4 browser failed; inspect sanitized log"
-            record.update(status="PASS", sourceFacts=133, generatedDates=63, actualOperationsSourceEvents=7, reverseDuplicates=126,
+            assert {name: sha((public_root / name).read_bytes()) for name in public_names} == source_hashes, 'M4 product source changed during verification'
+            record.update(status="PASS", sourceFacts=136, generatedDates=63, actualOperationsSourceEvents=7, reverseDuplicates=126,
                           datasetId=dataset_id, evaluationId=evaluation_id, meanWetKg="68.000", actualWetKg="82.000", flaggedTargets=2,
                           withheldGenerated=True, liveReceiptWithheld=True, immutableRegistry=True, explicitPauseRecovery=True,
-                          restartStable=True, realGeneratedWeb=True, modelEvaluationRead=True, provider="DETERMINISTIC_EVIDENCE_V1", providerSpendUsd="0")
+                          restartStable=True, realGeneratedWeb=True, modelEvaluationRead=True, concurrencyOneEffect=True, transactionRollback=True,
+                          trustedConflictFrozenRegistry=True, crossDatabaseDenied=True, privateBrokerDenials=True, crossEstateDenied=True,
+                          postCommitAvailability=True, unconfirmedReceiptWithheld=True, confirmationRecovery=True,
+                          provider="DETERMINISTIC_EVIDENCE_V1", providerSpendUsd="0")
             print("PASS: M4 Operations/broker/journal/Analytics/Gateway/PKCE/Web; forecasts, anomalies, registry, evidence, withholding and recovery.", flush=True)
         finally:
             for owned in (generator, container):

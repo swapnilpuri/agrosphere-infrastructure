@@ -1,3 +1,7 @@
+# M4 owned generated verification — 2026-11-10
+
+Run `python scripts/verify_m4.py` after the independent Web build for the approved remaining-M4 walkthrough, and `python scripts/verify_m4_upgrade.py` for nonempty foundation upgrade/wrong-target preservation checks. Both allocate newly owned short-lived projects and generated credentials only; no private `.env` discovery or existing stack reuse. They validate independent artifacts, real signed scope/Gateway/API/Web, source replay, post-commit availability/recovery, immutable evaluation, privilege/concurrency/rollback and owned teardown. [Delivery and actual evidence](../agrosphere-architecture/docs/milestones/M4_DELIVERY_VERIFICATION_2026_11_10.md). Owner acceptance remains OPEN. Default topology and existing data/configuration are preserved; the owner chooses the next milestone by prompt.
+
 # Current generated telemetry delivery
 
 TLM-02 finite deterministic simulator and read-only Web detail/freshness overlay are locally implemented and generated-verified. See docs/TELEMETRY_SIMULATOR.md and Architecture MQTT_POC_OVERLAY_VERIFICATION.md for exact approved scope/evidence. Run scripts/verify_telemetry_overlay.py only in its new owned disposable project, after the independent Web build; generated credentials, finite plans, process replay/duplicate evidence, real PKCE/Gateway/Spatial/Cesium and owned teardown are separate from owner functional acceptance. No real-device or agronomic claim.
