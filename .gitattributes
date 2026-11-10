@@ -4,3 +4,5 @@
 *.jpg binary
 *.uasset binary
 *.umap binary
+
+tests/analytics-contracts/*.json -text

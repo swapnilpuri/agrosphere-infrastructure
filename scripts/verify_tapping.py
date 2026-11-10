@@ -14,13 +14,20 @@ def free_port():
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0));return sock.getsockname()[1]
 
-def main(extra_acceptance=None):
+def main(extra_acceptance=None, extra_environment=None):
     project='agrosphere-3a-check-'+uuid.uuid4().hex[:8]
     oidc_port,gateway_port=free_port(),free_port()
     while gateway_port==oidc_port: gateway_port=free_port()
     keys=['POSTGRES_ADMIN_PASSWORD','ESTATE_DB_PASSWORD','SPATIAL_DB_PASSWORD','OPERATIONS_DB_PASSWORD','OPERATIONS_APP_DB_PASSWORD','TELEMETRY_DB_PASSWORD','ANALYTICS_DB_PASSWORD','AI_DB_PASSWORD','KEYCLOAK_DB_PASSWORD','KEYCLOAK_ADMIN_PASSWORD','RABBITMQ_PASSWORD']
     config={key:secrets.token_urlsafe(28) for key in keys}
     config.update(COMPOSE_PROJECT_NAME=project,OIDC_PUBLIC_URL=f'http://localhost:{oidc_port}',ESTATE_IMAGE=project+'-estate',GATEWAY_IMAGE=project+'-gateway',OPERATIONS_IMAGE=project+'-operations',GATEWAY_RATE_LIMIT='1000',TRACING_SAMPLE_PROBABILITY='0')
+    # Opt-in generated harness overrides only; no developer environment file is read.
+    assert set(extra_environment or {}) <= {'CORS_ALLOWED_ORIGINS'}
+    if extra_environment:
+        origin=urllib.parse.urlparse(extra_environment['CORS_ALLOWED_ORIGINS'])
+        assert origin.scheme=='http' and origin.hostname=='localhost' and 0 < origin.port < 65536
+        assert not (origin.username or origin.password or origin.path or origin.query or origin.fragment)
+    config.update(extra_environment or {})
     env={**os.environ,**config}
     with tempfile.TemporaryDirectory(prefix='agrosphere-3a-') as temporary:
         override=Path(temporary)/'override.yaml'

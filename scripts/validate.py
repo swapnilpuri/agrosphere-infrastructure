@@ -26,6 +26,10 @@ mappers=realm['clientScopes'][0]['protocolMappers']
 assert {'agrosphere-api','estate-service','spatial-service'}<={m['config'].get('included.custom.audience') for m in mappers}
 manifest=json.loads((ROOT/'tests/contracts/manifest.json').read_text())
 for name,digest in manifest['files'].items():assert hashlib.sha256((ROOT/'tests/contracts'/name).read_bytes()).hexdigest()==digest,name
+telemetry_manifest=json.loads((ROOT/'tests/telemetry-contracts/manifest.json').read_text())
+assert telemetry_manifest['release']=='0.10.0'
+for name,digest in telemetry_manifest['files'].items():
+    assert hashlib.sha256((ROOT/'tests/telemetry-contracts'/name).read_bytes()).hexdigest()==digest,name
 for file in (ROOT/'.github/workflows').glob('*.yml'):
     workflow=yaml.load(file.read_text(),Loader=yaml.BaseLoader)
     assert workflow['permissions']['contents']=='read'
@@ -80,3 +84,8 @@ crop=next(q for q in topology['queues'] if q['name']=='agrosphere.dev.crop-healt
 assert crop['durable'] and crop['arguments']['x-max-length']==10000 and crop['arguments']['x-dead-letter-routing-key']=='agrosphere.dev.crop-health.v1.dlq'
 assert {b['routing_key'] for b in topology['bindings'] if b['destination']==crop['name']}=={'agrosphere.'+name+'.v1' for name in ['FieldInspectionRecorded','FieldInspectionChanged','CropHealthIncidentReported','CropHealthIncidentChanged']}
 print('PASS: separate durable bounded crop-health v1 sink/DLQ; no deployment applied')
+
+# Independent unchanged collection-v2 pin used only by the generated admission drill.
+admission_schema=ROOT/'tests/analytics-contracts/LatexCollectionAdjusted.schema.json'
+assert hashlib.sha256(admission_schema.read_bytes()).hexdigest()=='985f6d66815682f06ad6e743cea517dcc8e96c99dd91f72f0234c86d7fb32fe1'
+print('PASS: exact independent ANL-01 admission schema pin; no wire change')

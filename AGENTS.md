@@ -33,3 +33,28 @@ Architecture ALERTS_NOTIFICATIONS_VERIFICATION.md records local implementation a
 ## Owner-approved AN privacy extension — 2026-10-31
 
 Architecture ALERTS_PRIVACY_APPROVAL.md records exact five-artifact privacy candidate acceptance (manifest ea6402a205d1da7a0801090b0acabac58ae164ba6544b474d709d8a4a608286b), local independent Contracts 0.9.0 release/archive/pins and generated-only AP-T02–07 implementation. Preserve accepted bytes, V1–V6, old events/records and all staged work/Web config. Additive privacy storage and narrowly scoped maintenance may be tested only in separately owned disposable generated databases. No existing-stack/private configuration/actual-account/REAL/existing role or credential/destructive migration/historical conversion/external delivery/Git publication/deployment/AEO action. AP-T08 local-stack execution remains separately gated; do not repeat II-1. Prior approval/pending labels remain historical within their scope; do not ask again for this exact acceptance.
+
+
+## TLM-01 adapters authorized — 2026-11-01
+
+Architecture MQTT_POC_ADAPTER_APPROVAL.md accepts exact package 389f1d3cfa6ca80fd602c2f945b9f23965723b53d5ca169919f7e11099e2bc75. Implement Telemetry SIMULATED ingestion/persistence/outbox/latest API, Gateway telemetry route only and Infrastructure generated-only owned disposable drills. Exact SQL/ACL/client engineering review and generated fixture credentials included. No repeated domain/executable approval. Preserve Contracts 0.10.0 pins, old migrations/config/data/indexes, existing stacks/private config/roles/credentials, REAL/Git/deployment/AEO exclusions.
+
+
+## Owner-approved TLM-02 — 2026-11-04
+
+Architecture MQTT_POC_OVERLAY_APPROVAL.md accepts exact review 0d8a67aef15b295dbca267adad300ab0c94c2c88ec37cbff0c6a69c1ff7a49c9. Implement bounded deterministic SIMULATED fixture publisher and read-only selected-block Web detail/freshness overlay using unchanged Contracts 0.10.0 pin. Generated-only disposable verification, no new schema/role, no repeated executable approval. Preserve existing UI/config/index/data and all original gates; no existing-stack/private config/REAL/production/Git/deployment/AEO action.
+
+
+## ANL-01 bounded runtime continuation — 2026-11-05
+
+Owner instructed "please resume" immediately after the bounded runtime/dashboard approval request. Architecture ANALYTICS_POC_ADAPTER_APPROVAL.md records that continuation authority for exact review 855fe1894c530cf7942d3175e7a3eae850d0b34abff976a5e6bf7ba87a5618f3: SIMULATED materialized Analytics, Analytics-only Gateway route, read-only Web dashboard and new owned disposable verification. Existing 0.11.0 contracts/pins unchanged; exact SQL/grant engineering review precedes new-fixture installation. No existing-stack/private config/data/roles/credentials, REAL, production/Git/deployment/AEO action. Preserve indexes/prior features and original owner/field/milestone gates.
+
+
+## ANL-01 finite admission approved
+
+Owner approved exact admission review SHA-256 5c9a6787f0ebf2ad0d3d172e5fc3ac2ebb9d83ea9936c3664331fa81fe8629f8. Architecture ANALYTICS_POC_ADMISSION_APPROVAL.md records finite generated profile, bounded parser/diagnostic/test changes and new owned disposable verification. Prior approvals satisfied; preserve exact contracts, migrations, indexes/private config/data and all owner/field/REAL/AEO/Git/deployment exclusions.
+
+
+## ANL-02 bounded runtime approved — 2026-11-05
+
+Architecture ANALYTICS_ENVIRONMENT_ADAPTER_APPROVAL.md records owner acceptance of exact runtime/SQL manifest afff8ff5a13e1167d53ab569f0ea28c5f003def01fab9318db455f291f537ea8. Implement SIMULATED environmental parser/immutable persistence/consumer/scoped API, read-only Web with independent 0.12.0 pin and new owned disposable verification; generated fixture credentials included. Exact SQL/grant engineering review before installation. No new producer/role or Gateway prefix widening. Preserve old artifacts/V1/V2/config/data/index and all original gates. No existing-stack/private config/account/role/credential, REAL, Git publication/deployment or AEO action. Historical pending labels are superseded only for this scope.

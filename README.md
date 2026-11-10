@@ -1,3 +1,9 @@
+# Current generated telemetry delivery
+
+TLM-02 finite deterministic simulator and read-only Web detail/freshness overlay are locally implemented and generated-verified. See docs/TELEMETRY_SIMULATOR.md and Architecture MQTT_POC_OVERLAY_VERIFICATION.md for exact approved scope/evidence. Run scripts/verify_telemetry_overlay.py only in its new owned disposable project, after the independent Web build; generated credentials, finite plans, process replay/duplicate evidence, real PKCE/Gateway/Spatial/Cesium and owned teardown are separate from owner functional acceptance. No real-device or agronomic claim.
+
+TLM-01 scripts/verify_telemetry.py retains generated-only adapter/JWT/MQTT/persistence/recovery checks and the exact independent telemetry event pin. Existing stack/config/data/roles/credentials and default topology stay unchanged. Original M1/M2/M3, field/offline/English-French, REAL/production, privacy and owner gates persist; see Architecture checkpoint for current authority.
+
 # AgroSphere local platform
 
 ## WA-1 local status — 2026-10-29
@@ -119,3 +125,12 @@ scripts/verify_alerts.py extends retained II/WA/3B/3A drills in a new random gen
 ## Generated privacy acceptance — 2026-10-31
 
 Run python scripts/verify_alert_privacy.py only for a new disposable generated project. It independently builds the apps, exercises actual Keycloak/Gateway v2 alerts and retained II/WA/3B/3A, then removes only its random project. The helper privacy-mode keyword defaults false, preserving the original legacy drill. It never reads developer private configuration or upgrades the existing stack. Actual log/backup retention configuration and unattended maintenance remain operating gates; no new privacy queue/event is introduced.
+
+
+## ANL-01 generated-only Analytics verification
+
+Run `python scripts/verify_analytics.py` with Docker and independently built Web/browser tooling. It creates only a new labelled disposable project, separate generated database/runtime/broker principals, private bounded queues and a short-lived manifest. Actual Operations, broker, materialized Analytics, Gateway and Web/PKCE behavior, exact totals, duplicates, outage/recovery, diagnostics, guarded cache rebuild, denial and owned cleanup are verified. No existing private environment/config/data is read or changed. The finite admission profile is approved (Architecture ANALYTICS_POC_ADMISSION_APPROVAL.md); its diagnostics, no-effect and pause/recovery assertions are included. Owner M4 acceptance remains OPEN.
+
+## ANL-02 generated verification — 2026-11-05
+
+[Environmental history drill](docs/ENVIRONMENTAL_HISTORY.md) runs `python scripts/verify_environment_history.py` in a new owned disposable project only, exercising actual MQTT/Telemetry, Analytics, Gateway, Web/PKCE and cleanup. Never target the existing developer stack or private .env.
