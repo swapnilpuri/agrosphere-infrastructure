@@ -1,3 +1,7 @@
+## Unreleased — 2026-11-11 POC-CLOSE
+
+Add a shared generated fixture context for connected Operations, Analytics, AI, privacy, MQTT and client verification. Track exact resource/process/copy ownership, fixed lifetime and interruption recovery. Add bounded fault adapters, distinct weather/soil publishers, agreed query workloads, hardware-browser capture and native diagnostic commands. Preserve the existing standalone verification entry points. Execution evidence retains startup, adapter, wiring, latency and interruption failures with their recovery results.
+
 ## Unreleased — 2026-11-10 M4 verification
 
 Add generated-only verify_m4.py, extending the existing ANL-01 acceptance callback without changing default topology or loading private environment files. New owned AI principals/queue/database guard, source replay, immutable evaluation, scope/privilege/concurrency/rollback/recovery and real PKCE/Web checks. Explicit generated-session renewal preserves expiry validation. Retained browser badge selector scoped to its production region. No existing-target, production, REAL, Git or AEO action.

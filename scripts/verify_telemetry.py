@@ -68,7 +68,9 @@ def main(extra_telemetry=None, evidence_path=None, platform_environment=None, *,
                              'max_packet_size 8192\nuse_username_as_clientid true\n')
             acl = f'user {principal}\ntopic write {topic}\nuser {subscriber}\ntopic read {topic}\n'
             if owner:
-                acl = f'user {principal}\ntopic write {topic}\nuser {soil_principal}\ntopic write {soil_topic}\nuser {subscriber}\ntopic read {topic}\ntopic read {soil_topic}\n'
+                topic_principals = sorted([(topic, principal), (soil_topic, soil_principal)])
+                acl = ''.join(f'user {who}\ntopic write {allowed}\n' for allowed, who in topic_principals)
+                acl += f'user {subscriber}\n' + ''.join(f'topic read {allowed}\n' for allowed, _ in topic_principals)
             (directory / 'broker.conf').write_text(broker_config, newline='\n')
             (directory / 'acl').write_text(acl, newline='\n')
             (directory / 'passwords').write_text(f'{principal}:{publisher_password}\n{subscriber}:{subscriber_password}\n' +
@@ -152,7 +154,8 @@ def main(extra_telemetry=None, evidence_path=None, platform_environment=None, *,
 
             telemetry = application(False)
             for _ in range(90):
-                if sql("SELECT to_regclass('telemetry_device')") == 'telemetry_device':
+                if (sql("SELECT to_regclass('telemetry_device')") == 'telemetry_device'
+                    and sql("SELECT count(*) FROM flyway_schema_history WHERE version='3' AND success") == '1'):
                     break
                 time.sleep(1)
             else:

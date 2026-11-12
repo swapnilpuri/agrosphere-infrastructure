@@ -1,3 +1,7 @@
+# POC-CLOSE connected verification — 2026-11-11
+
+The approved connected runner coordinates a new generated project across independent services, Web and the packaged desktop client. It records source/image identities, component outcomes, performance samples and owned recovery. The runbook describes the executed flow, stop/recovery commands and outstanding rendered checks. [POC-CLOSE runbook](docs/POC_CLOSE_RUNBOOK.md).
+
 # M4 owned generated verification — 2026-11-10
 
 Run `python scripts/verify_m4.py` after the independent Web build for the approved remaining-M4 walkthrough, and `python scripts/verify_m4_upgrade.py` for nonempty foundation upgrade/wrong-target preservation checks. Both allocate newly owned short-lived projects and generated credentials only; no private `.env` discovery or existing stack reuse. They validate independent artifacts, real signed scope/Gateway/API/Web, source replay, post-commit availability/recovery, immutable evaluation, privilege/concurrency/rollback and owned teardown. [Delivery and actual evidence](../agrosphere-architecture/docs/milestones/M4_DELIVERY_VERIFICATION_2026_11_10.md). Owner acceptance remains OPEN. Default topology and existing data/configuration are preserved; the owner chooses the next milestone by prompt.

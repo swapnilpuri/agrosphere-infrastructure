@@ -161,7 +161,14 @@ class Owner:
     def persist(self):
         temporary = self.path.with_suffix('.writing')
         temporary.write_text(json.dumps(self.record, indent=2) + '\n', encoding='utf-8')
-        temporary.replace(self.path)
+        for attempt in range(8):
+            try:
+                temporary.replace(self.path)
+                return
+            except PermissionError:
+                if attempt == 7:
+                    raise
+                time.sleep(min(.8, .05 * 2 ** attempt))
 
     def ids(self, kind):
         command = ['docker', 'ps', '-aq'] if kind == 'container' else ['docker', kind, 'ls', '-q']
@@ -273,13 +280,15 @@ class Owner:
                     self.check_lifetime()
                     if time.monotonic() >= deadline:
                         raise
-        except subprocess.TimeoutExpired:
+        except BaseException as error:
             if process_identity(process.pid) == identity:
                 execute(['taskkill', '/PID', str(process.pid), '/T', '/F'])
             process.communicate(timeout=15)
+            if isinstance(error, subprocess.TimeoutExpired):
+                raise RuntimeError('Owned browser timeout; exact parent tree stopped') from None
+            raise
+        finally:
             self.inventory_copies()
-            raise RuntimeError('Owned browser timeout; exact parent tree stopped') from None
-        self.inventory_copies()
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
     def stop_clients(self):
@@ -326,7 +335,7 @@ class Owner:
         for repo in ['estate-service', 'spatial-service', 'operations-service', 'api-gateway', 'telemetry-service', 'analytics-service', 'ai-service']:
             directory = ROOT.parent / ('agrosphere-' + repo)
             # Public tracked source/build inputs only; exclude configuration and evidence.
-            files = execute(['git', '--no-optional-locks', '-C', str(directory), 'ls-files']).stdout.splitlines()
+            files = execute(['git', '--no-optional-locks', '-C', str(directory), 'ls-files', '--cached', '--others', '--exclude-standard']).stdout.splitlines()
             selected = [f for f in files if f.startswith(('src/', 'migrations/')) or f in ('Dockerfile', 'pom.xml', 'pyproject.toml', 'VERSION')]
             self.record['publicSourceSha256'][repo] = {f: sha(directory / f) for f in selected if (directory / f).is_file()}
         self.phase('available local base images and public source identities')

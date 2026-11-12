@@ -85,6 +85,26 @@ class OwnershipTest(unittest.TestCase):
                 owner.docker('build', '-t', owner.project + '-api', '.')
             self.assertEqual(len(run.call_args_list), 1)
 
+    def test_transient_windows_replace_lock_preserves_previous_manifest_until_retry(self):
+        owner = Owner.__new__(Owner)
+        with tempfile.TemporaryDirectory(prefix='poc-close-manifest-test-') as directory:
+            owner.path = Path(directory) / 'owner.json'
+            owner.path.write_text('{"previous":true}')
+            owner.record = {'replacement': True}
+            replace = Path.replace
+            attempts = []
+            def transient_lock(source, target):
+                attempts.append(True)
+                if len(attempts) < 3:
+                    self.assertEqual(json.loads(owner.path.read_text()), {'previous': True})
+                    raise PermissionError('Simulated Windows reader lock')
+                return replace(source, target)
+            with patch.object(Path, 'replace', transient_lock), patch('poc_close_owner.time.sleep'):
+                owner.persist()
+            self.assertEqual(len(attempts), 3)
+            self.assertEqual(json.loads(owner.path.read_text()), owner.record)
+            self.assertFalse(owner.path.with_suffix('.writing').exists())
+
 
 if __name__ == '__main__':
     unittest.main()
