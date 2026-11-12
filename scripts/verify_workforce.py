@@ -13,7 +13,8 @@ from verify_collections import collections
 
 
 def workforce(**c):
-    collections(**c)
+    if not c.get("collections_already_verified", False):
+        collections(**c)
     compose, config = c['compose'], c['config']
     def call(path, method='GET', body=None, token=None, key=None, status=200):
         headers = {'Authorization': 'Bearer ' + (token or c['admin_token']), 'Content-Type': 'application/json'}
@@ -34,12 +35,13 @@ def workforce(**c):
         request(url, 'PUT', value, management, expected=204)
         return login(config, user)
     # Country and timezone are synthetic fixture choices, not actual plantation facts.
-    estate = c['call']('/estates', 'POST', {'estateCode':'SIMWA1','name':'SIMULATED WA verification','countryCode':'GA','timezone':'Africa/Libreville','status':'ACTIVE'},status=201)['id']
-    today = datetime.now(ZoneInfo('Africa/Libreville')).date()
+    estate = c.get('workforce_estate') or c['call']('/estates', 'POST', {'estateCode':'SIMWA1','name':'SIMULATED WA verification','countryCode':'GA','timezone':'Africa/Libreville','status':'ACTIVE'},status=201)['id']
+    estate_timezone = c['call']('/estates/' + estate)['timezone'] if c.get('workforce_estate') else 'Africa/Libreville'
+    today = datetime.now(ZoneInfo(estate_timezone)).date()
     supervisor = scoped('wa-supervisor', 'FIELD_SUPERVISOR', estate)
     auditor = scoped('wa-auditor', 'AUDITOR', estate)
     viewer = scoped('wa-viewer', 'VIEWER', estate)
-    foreign = scoped('wa-foreign-manager', 'ESTATE_MANAGER', c['estate'])
+    foreign = scoped('wa-foreign-manager', 'ESTATE_MANAGER', c.get('workforce_foreign_estate', c['estate']))
     body = {'estateId':estate,'workerCode':'sim-wa-1','displayName':'SIMULATED Worker','activeFrom':(today-timedelta(days=2)).isoformat(),'dataProvenance':'SIMULATED'}
     key = str(uuid.uuid4()); worker, original, location = call('/workers','POST',body,key=key,status=201)
     wid = worker['id']; assert worker['workerCode'] == 'SIM-WA-1' and worker['version'] == 0
@@ -49,7 +51,7 @@ def workforce(**c):
     root = '/attendance/days'
     call(root,'POST',{'workerRegistrationId':wid,'attendanceDate':(today-timedelta(days=1)).isoformat(),'status':'PRESENT','backdateReason':'SIMULATED'},token=supervisor,status=403)
     day, _, _ = call(root,'POST',{'workerRegistrationId':wid,'attendanceDate':today.isoformat(),'status':'PRESENT'},token=supervisor,status=201)
-    did = day['id']; assert day['estateTimezone'] == 'Africa/Libreville'
+    did = day['id']; assert day['estateTimezone'] == estate_timezone
     roster, _, _ = call('/attendance/roster?estateId='+estate+'&date='+today.isoformat()+'&provenance=SIMULATED',token=supervisor)
     assert (roster['eligibleCount'], roster['markedCount'], roster['unmarkedCount']) == (1,1,0)
     call(root+'/'+did+'/corrections','POST',{'version':0,'status':'ABSENT','reason':'SIMULATED correction'})

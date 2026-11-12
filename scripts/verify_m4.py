@@ -23,13 +23,15 @@ def sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
-def main():
+def main(*, platform_runner=None, owner=None, extra_acceptance=None):
+    docker = owner.docker if owner else globals()["docker"]
+    evidence_root = owner.path.parent if owner else ROOT / "target"
     record = {"status": "NOT_RUN", "scope": "M4 newly owned SIMULATED disposable project", "ownerAcceptance": "OPEN"}
 
     def acceptance(**c):
         config, compose, directory, run = c["config"], c["compose"], c["directory"], c["run"]
         project = config["COMPOSE_PROJECT_NAME"]
-        assert project.startswith("agrosphere-3a-check-")
+        assert project.startswith("agrosphere-3a-check-") or owner and project == owner.project
         record.update(project=project, runId=run)
         gateway = compose("ps", "-q", "gateway").stdout.strip()
         assert docker("inspect", "-f", '{{index .Config.Labels "com.docker.compose.project"}}', gateway).stdout.strip() == project
@@ -113,12 +115,12 @@ print(len(messages))
             broker("queues/%2F/" + quarantine, principal=rabbit, password=rabbit_password, expected=401)
             dsn = "postgresql://" + runtime + ":" + db_password + "@postgres:5432/agrosphere_ai"
             now = datetime.now(timezone.utc)
-            manifest = {"runId": run, "project": project, "createdAt": now.isoformat(), "expiresAt": (now + timedelta(hours=3)).isoformat(),
+            manifest = {"runId": run, "project": project, "createdAt": now.isoformat(), "expiresAt": (owner.record['expiresUtc'] if owner else (now + timedelta(hours=3)).isoformat()),
                         "dsnSha256": sha(dsn.encode()), "dbMarker": "M4:" + run, "runtimeUser": runtime, "migrationUser": "agrosphere_ai",
                         "scopes": [{"estateId": c["estate"], "blockId": c["block"], "timezone": "Asia/Colombo"}],
                         "queue": queue, "diagnostics": diagnostics, "corpusSha256": sha(corpus_path.read_bytes())}
-            owner = directory / ".generated-m4-owner"
-            owner.write_text(run)
+            owner_marker = directory / ".generated-m4-owner"
+            owner_marker.write_text(run)
             manifest_path = directory / "m4-manifest.json"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             env = {"AI_BUSINESS_ENABLED": "true", "AI_CONSUMER_ENABLED": "true", "AI_DATABASE_URL": dsn,
@@ -132,13 +134,17 @@ print(len(messages))
             env_file.write_text("".join(k + "=" + v + "\n" for k, v in env.items()), newline="\n")
             container = docker("create", "--name", project + "-ai", "--label", "agrosphere.m4.run=" + run,
                                "--network", "container:" + gateway, "--env-file", str(env_file), image).stdout.strip()
-            for file, target in [(manifest_path, "m4-manifest.json"), (owner, ".generated-m4-owner"), (corpus_path, "m4-corpus.json")]:
+            for file, target in [(manifest_path, "m4-manifest.json"), (owner_marker, ".generated-m4-owner"), (corpus_path, "m4-corpus.json")]:
                 docker("cp", str(file), container + ":/app/" + target)
             # Migration runs as the generated migration owner. It independently checks the manifest/DB marker.
             migration = docker("run", "--rm", "--label", "agrosphere.m4.run=" + run, "--network", "container:" + gateway,
                                "--env-file", str(env_file), "--mount", "type=bind,source=" + str(directory) + ",target=/fixture,readonly",
                                "-e", "AI_GENERATED_MANIFEST=/fixture/m4-manifest.json", image, "alembic", "upgrade", "head", check=False)
             if migration.returncode:
+                safe = migration.stdout + migration.stderr
+                for secret in [db_password, rabbit_password, dsn, *[v for k, v in config.items() if "PASSWORD" in k]]:
+                    safe = safe.replace(secret, '[REDACTED]')
+                record['migrationFailure'] = {'sanitized': safe[-6000:]}
                 raise RuntimeError("Owned M4 migration failed")
             assert sql("SELECT version_num FROM alembic_version") == "0002"
             assert sql("SELECT count(*) FROM outbox_event") == "0"
@@ -298,12 +304,14 @@ print('PASS: database and broker privilege denials')
                                "asOf": as_of, "labelAsOf": label, 'workerUsername': c['worker']['username'], 'workerPassword': c['worker']['password']}
             browser = directory / "m4-browser.json"
             browser.write_text(json.dumps(browser_fixture))
-            result = subprocess.run(["node", "node_modules/@playwright/test/cli.js", "test", "--project=m4-live"], cwd=ROOT.parent / "agrosphere-web",
-                                    env={**os.environ, "M4_LIVE_FIXTURE": str(browser), "AGRO_NO_PREVIEW": "1"}, capture_output=True, text=True, timeout=180)
+            result = (owner.run_browser if owner else subprocess.run)(["node", "node_modules/@playwright/test/cli.js", "test", "--project=m4-live", *(['--output=' + str(owner.private / 'browser-m4-live')] if owner else []), *(['--reporter=list'] if owner else [])], cwd=ROOT.parent / "agrosphere-web",
+                                    env={**os.environ, **(owner.browser_environment() if owner else {}), "M4_LIVE_FIXTURE": str(browser), "AGRO_NO_PREVIEW": "1"}, capture_output=True, text=True, timeout=180)
             output = result.stdout + result.stderr
             for secret in [db_password, rabbit_password, c["admin"]["password"], c['worker']['password'], c["admin_token"], *active_tokens, *[v for k, v in config.items() if "PASSWORD" in k]]:
                 output = output.replace(secret, "[REDACTED]")
-            (ROOT / "target/m4-browser.log").write_text(output, encoding="utf-8")
+            (evidence_root / "m4-browser.log").write_text(output, encoding="utf-8")
+            if owner:
+                owner.inventory_copies()
             assert result.returncode == 0, "M4 browser failed; inspect sanitized log"
             assert {name: sha((public_root / name).read_bytes()) for name in public_names} == source_hashes, 'M4 product source changed during verification'
             record.update(status="PASS", sourceFacts=136, generatedDates=63, actualOperationsSourceEvents=7, reverseDuplicates=126,
@@ -314,6 +322,8 @@ print('PASS: database and broker privilege denials')
                           postCommitAvailability=True, unconfirmedReceiptWithheld=True, confirmationRecovery=True,
                           provider="DETERMINISTIC_EVIDENCE_V1", providerSpendUsd="0")
             print("PASS: M4 Operations/broker/journal/Analytics/Gateway/PKCE/Web; forecasts, anomalies, registry, evidence, withholding and recovery.", flush=True)
+            if extra_acceptance:
+                extra_acceptance(**c, ai_container=container, ai_record=record, ai_dataset=dataset_id, ai_evaluation=evaluation_id)
         finally:
             for owned in (generator, container):
                 if owned:
@@ -323,18 +333,18 @@ print('PASS: database and broker privilege denials')
             record["aiOwnedContainersRemoved"] = True
 
     try:
-        verify_analytics(acceptance)
+        (platform_runner or verify_analytics)(acceptance)
     except Exception:
         record["status"] = "FAILED"
         raise
     finally:
         project = record.get("project")
-        if project:
+        if project and not owner:
             for kind in ["ps", "volume", "network"]:
                 args = ["ps", "-aq"] if kind == "ps" else [kind, "ls", "-q"]
                 assert not docker(*args, "--filter", "label=com.docker.compose.project=" + project).stdout.strip(), "Owned M4 project cleanup incomplete"
             record["projectResourcesRemoved"] = True
-        (ROOT / "target/m4-platform.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        (evidence_root / "m4-platform.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

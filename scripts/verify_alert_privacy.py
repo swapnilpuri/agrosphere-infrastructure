@@ -39,7 +39,14 @@ def privacy_alerts(**c):
     management=admin_token(c['config']);url=c['realm']+'/users/'+manager['id'];profile,_=request(url,token=management)
     profile['attributes']={**profile.get('attributes',{}),'estate_ids':[c['estate']]};request(url,'PUT',profile,management,expected=204)
     manager_token=login(c['config'],manager)
-    c['enable_generated_alerts']([c['admin']['id'],manager['id']],privacy=True)
+    subjects=[c['admin']['id'],manager['id']]
+    manager_b=None
+    if c.get('poc_owner'):
+        manager_b=c['user']('alert-manager-b','ESTATE_MANAGER')
+        management=admin_token(c['config']);url=c['realm']+'/users/'+manager_b['id'];profile,_=request(url,token=management)
+        profile['attributes']={**profile.get('attributes',{}),'estate_ids':[c['estate']]};request(url,'PUT',profile,management,expected=204)
+        subjects.append(manager_b['id'])
+    c['enable_generated_alerts'](subjects,privacy=True)
     counts,_=call('/alerts/counts?estateId='+c['estate']);assert counts['activeTotal']==0,'No historical backfill'
     call('/incidents/'+prior['id']+'/triage','POST',{'expectedVersion':0,'reason':'SIMULATED future command'})
     page,_=call('/alerts?estateId='+c['estate']);assert page['totalElements']==1;alert=page['content'][0];aid=alert['id']
@@ -48,8 +55,13 @@ def privacy_alerts(**c):
     assert not {'summary','details','acknowledgedBy','recipients','subject'} & set(alert)
     read,_=call('/alerts/'+aid+'/read','POST',{'attentionVersion':1},token=manager_token);assert not read['unreadForMe'] and not read['acknowledged']
     other,_=call('/alerts/'+aid);assert other['unreadForMe'],'Personal reads do not fan out'
+    if manager_b:
+        manager_b_token=login(c['config'],manager_b)
+        other_b,_=call('/alerts/'+aid,token=manager_b_token);assert other_b['unreadForMe']
     key=uuid7();command={'expectedAlertVersion':1,'attentionVersion':1}
     ack,original=call('/alerts/'+aid+'/acknowledgements','POST',command,token=manager_token,key=key);assert ack['acknowledged'] and ack['alertVersion']==2
+    if manager_b:
+        shared,_=call('/alerts/'+aid,token=manager_b_token);assert shared['acknowledged'] and shared['unreadForMe']
     call('/alerts/'+aid+'/acknowledgements','POST',{'expectedAlertVersion':2,'attentionVersion':1},status=409)
     call('/incidents/'+prior['id']+'/resolve','POST',{'expectedVersion':1,'reason':'SIMULATED closure','resolvedAt':datetime.now(timezone.utc).isoformat(timespec='microseconds'),'resolutionNote':'SIMULATED resolution'})
     _,replay=call('/alerts/'+aid+'/acknowledgements','POST',command,token=manager_token,key=key);assert original==replay
@@ -70,6 +82,9 @@ def privacy_alerts(**c):
         if status=='0':break
         time.sleep(1)
     assert status=='0','Existing outbox recovery must complete'
+    if c.get('poc_owner'):
+        from poc_close_privacy import verify as verify_policy
+        verify_policy(c,call,manager,manager_b)
     print('PASS: privacy v2 real generated Keycloak/Gateway/Estate/Operations source->inbox->own read->shared ack->resolve/reopen; no backfill, role/REAL denial, original replay and broker-independent inbox. Retained II/WA/3B/3A passed.',flush=True)
 
 

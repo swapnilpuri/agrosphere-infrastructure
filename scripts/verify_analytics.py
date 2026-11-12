@@ -31,18 +31,20 @@ def docker(*args, input_text=None, check=True):
     return value
 
 
-def main(extra_acceptance=None):
+def main(extra_acceptance=None, *, platform_runner=None, owner=None, collections_verified=False):
+    docker = owner.docker if owner else globals()["docker"]
+    evidence_root = owner.path.parent if owner else ROOT / "target"
     record = {'status': 'NOT_RUN', 'scope': 'SIMULATED owned disposable platform only'}
 
     def acceptance(**c):
         config, compose = c['config'], c['compose']
         project = config['COMPOSE_PROJECT_NAME']
-        assert project.startswith('agrosphere-3a-check-')
+        assert project.startswith('agrosphere-3a-check-') or owner and project == owner.project
         gateway = compose('ps', '-q', 'gateway').stdout.strip()
         for name in ['gateway', 'postgres', 'rabbitmq']:
             container = compose('ps', '-q', name).stdout.strip()
             assert docker('inspect', '-f', '{{index .Config.Labels "com.docker.compose.project"}}', container).stdout.strip() == project
-        run = str(uuid.uuid4())
+        run = str(uuid.UUID(owner.run)) if owner else str(uuid.uuid4())
         record.update(project=project, runId=run)
         image = project + '-analytics'
         print('Building independent Analytics image...', flush=True)
@@ -85,7 +87,7 @@ with response:
         diagnostics = 'agrosphere.analytics.production.diagnostics'
         sink = 'agrosphere.analytics.production.verify'
         try:
-            with tempfile.TemporaryDirectory(prefix='agrosphere-anl-platform-') as temporary:
+            with tempfile.TemporaryDirectory(prefix='agrosphere-anl-platform-', dir=owner.private if owner else None) as temporary:
                 directory = Path(temporary).resolve()
                 (directory / '.generated-analytics-owner').write_text(run)
                 sql("CREATE ROLE " + runtime + " LOGIN PASSWORD '" + db_password + "' NOSUPERUSER NOCREATEDB NOCREATEROLE;", admin=True)
@@ -105,7 +107,7 @@ with response:
                 broker('queues/%2F/' + quarantine, principal=rabbit, password=rabbit_password, expected=401)
                 db_url = 'jdbc:postgresql://postgres:5432/agrosphere_analytics'
                 now = datetime.now(timezone.utc)
-                manifest = {'runId': run, 'projectId': project, 'createdAt': now.isoformat(), 'expiresAt': (now + timedelta(hours=2)).isoformat(),
+                manifest = {'runId': run, 'projectId': project, 'createdAt': now.isoformat(), 'expiresAt': (owner.record['expiresUtc'] if owner else (now + timedelta(hours=2)).isoformat()),
                             'dbUrlSha256': digest(db_url.encode()), 'runtimeUser': runtime, 'migrationUser': 'agrosphere_analytics', 'rabbitUser': rabbit,
                             'scopes': [{'estateId': c['estate'], 'blockId': c['block']}]}
                 manifest_file = directory / 'manifest.json'
@@ -153,7 +155,8 @@ with response:
                     raise AssertionError('Owned Analytics HTTP not ready')
                 assert empty['days'][0]['availability'] == 'NONE' and empty['days'][0]['metrics'] is None
                 c['call'](path, bearer=c['worker_token'], status=403)
-                collections(**c)
+                if not collections_verified:
+                    collections(**c)
                 docker('restart', container)  # explicit owned recovery after the source broker outage
 
                 def settled():
@@ -285,12 +288,14 @@ with urllib.request.urlopen(r,timeout=10) as response: print(json.dumps(json.loa
                 browser.write_text(json.dumps({'runId': run, 'webOrigin': origin, 'gateway': c['base'].removesuffix('/api/v1'),
                                                'oidc': config['OIDC_PUBLIC_URL'], 'username': c['admin']['username'], 'password': c['admin']['password'],
                                                'estateId': c['estate'], 'blockId': c['block'], 'day': day}), encoding='utf-8')
-                result = subprocess.run(['node', 'node_modules/@playwright/test/cli.js', 'test', '--project=production-live'], cwd=ROOT.parent / 'agrosphere-web',
-                                        env={**os.environ, 'ANALYTICS_LIVE_FIXTURE': str(browser), 'AGRO_NO_PREVIEW': '1'}, capture_output=True, text=True, timeout=180)
+                result = (owner.run_browser if owner else subprocess.run)(['node', 'node_modules/@playwright/test/cli.js', 'test', '--project=production-live', *(['--output=' + str(owner.private / 'browser-production-live')] if owner else []), *(['--reporter=list'] if owner else [])], cwd=ROOT.parent / 'agrosphere-web',
+                                        env={**os.environ, **(owner.browser_environment() if owner else {}), 'ANALYTICS_LIVE_FIXTURE': str(browser), 'AGRO_NO_PREVIEW': '1'}, capture_output=True, text=True, timeout=180)
                 output = result.stdout + result.stderr
                 for secret in [db_password, rabbit_password, c['admin']['password'], c['admin_token'], *[v for k, v in config.items() if 'PASSWORD' in k]]:
                     output = output.replace(secret, '[REDACTED]')
-                (ROOT / 'target/analytics-browser.log').write_text(output, encoding='utf-8')
+                (evidence_root / 'analytics-browser.log').write_text(output, encoding='utf-8')
+                if owner:
+                    owner.inventory_copies()
                 assert result.returncode == 0, 'Owned real Analytics Web check failed; inspect sanitized log'
                 record.update(status='PASS', originalSourceEvents=7, duplicateReplay=7, receipts=7, highestRoots=3,
                               exactWetKg='3.000', exactKnownDryKg='0.000', conflictCount=1, malformedSanitized=True,
@@ -299,6 +304,8 @@ with urllib.request.urlopen(r,timeout=10) as response: print(json.dumps(json.loa
                 record.update(admissionProfile='APPROVED_FINITE_GENERATED', admissionDiagnostics=2, oversizedSchemaValidation=True,
                               exponentRejectedBeforeArithmetic=True, admissionPauseRecovery=True, admissionNoProjectionMutation=True)
                 print('PASS: generated Operations -> broker -> materialized Analytics -> Gateway -> Web; duplicates, outage, diagnostics, restart, rebuild and exact oracle.', flush=True)
+                if owner:
+                    owner.inventory_copies()
                 if extra_acceptance:
                     extra_acceptance(**c, analytics_container=container, analytics_sql=sql,
                                      broker=broker, publish=publish, source_messages=messages,
@@ -310,18 +317,18 @@ with urllib.request.urlopen(r,timeout=10) as response: print(json.dumps(json.loa
                 record['analyticsContainerRemoved'] = True
 
     try:
-        verify_platform(acceptance, extra_environment={'CORS_ALLOWED_ORIGINS': 'http://localhost:' + str(free_port())})
+        (platform_runner or verify_platform)(acceptance, extra_environment={'CORS_ALLOWED_ORIGINS': 'http://localhost:' + str(free_port())})
     except Exception:
         record['status'] = 'FAILED'
         raise
     finally:
         project = record.get('project')
-        if project:
+        if project and not owner:
             for kind in ['ps', 'volume', 'network']:
                 args = ['ps', '-aq'] if kind == 'ps' else [kind, 'ls', '-q']
                 assert not docker(*args, '--filter', 'label=com.docker.compose.project=' + project).stdout.strip(), 'Owned project cleanup incomplete'
             record['projectResourcesRemoved'] = True
-        (ROOT / 'target/analytics-platform.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+        (evidence_root / 'analytics-platform.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
 
 
 if __name__ == '__main__':

@@ -23,11 +23,13 @@ def digest(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
-def main():
+def main(*, platform_runner=None, owner=None, extra_acceptance=None):
+    docker = owner.docker if owner else globals()["docker"]
+    evidence_root = owner.path.parent if owner else ROOT / "target"
     record = {'status': 'NOT_RUN', 'scope': 'ANL-02 SIMULATED newly owned disposable only', 'ownerAcceptance': 'OPEN'}
 
     def acceptance(config, compose, call, estate, block, admin, base, bearer, directory, mqtt, channel, run, topic, path, broker_api):
-        project = config['COMPOSE_PROJECT_NAME']; assert project.startswith('agrosphere-3a-check-')
+        project = config['COMPOSE_PROJECT_NAME']; assert project.startswith('agrosphere-3a-check-') or owner and project == owner.project
         record.update(project=project, runId=run)
         gateway = compose('ps', '-q', 'gateway').stdout.strip()
         assert docker('inspect', '-f', '{{index .Config.Labels "com.docker.compose.project"}}', gateway).stdout.strip() == project
@@ -98,7 +100,7 @@ with urllib.request.urlopen(r,timeout=10) as response: print(json.dumps(json.loa
             reference = instant(call(path, bearer=bearer)['generatedAt']).replace(microsecond=0)
             start, end = wire_time(reference - timedelta(seconds=150)), wire_time(reference + timedelta(seconds=1))
             db_url = 'jdbc:postgresql://postgres:5432/agrosphere_analytics'; now = datetime.now(timezone.utc)
-            manifest = {'runId': run, 'projectId': project, 'createdAt': now.isoformat(), 'expiresAt': (now + timedelta(hours=2)).isoformat(),
+            manifest = {'runId': run, 'projectId': project, 'createdAt': now.isoformat(), 'expiresAt': (owner.record['expiresUtc'] if owner else (now + timedelta(hours=2)).isoformat()),
                         'dbUrlSha256': digest(db_url.encode()), 'runtimeUser': runtime, 'migrationUser': 'agrosphere_analytics', 'rabbitUser': base_user,
                         'environmentRabbitUser': environment_user, 'environmentQueue': QUEUE, 'environmentSchemaSha256': SCHEMA_SHA,
                         'environmentWindowFrom': start, 'environmentWindowTo': end, 'scopes': [{'estateId': estate, 'blockId': block}]}
@@ -118,6 +120,8 @@ with urllib.request.urlopen(r,timeout=10) as response: print(json.dumps(json.loa
             docker('cp', str(manifest_file), container + ':/app/analytics-manifest.json'); docker('cp', str(marker), container + ':/app/.generated-analytics-owner'); docker('start', container)
             wait_for(lambda: sql("SELECT to_regclass('anl_environment_observation')"), lambda x: x == 'anl_environment_observation', 'V3 migration', 180)
             sql('GRANT SELECT,INSERT ON anl_environment_receipt,anl_environment_observation,anl_environment_issue TO ' + runtime + '; GRANT SELECT,INSERT,UPDATE ON anl_environment_scope TO ' + runtime + ';')
+            if owner:
+                sql('GRANT SELECT ON anl_daily,anl_scope,anl_collection,anl_receipt,anl_seen_version,anl_issue TO ' + runtime + ';')
             assert sql('SELECT current_user', as_runtime=True) == runtime
             for statement in ['CREATE TABLE denied(id int)', 'CREATE TEMP TABLE denied(id int)', 'TRUNCATE anl_environment_receipt', "UPDATE anl_environment_observation SET value_text='1'", 'DELETE FROM anl_environment_receipt', 'DELETE FROM anl_environment_issue']:
                 assert sql(statement, as_runtime=True, check=False).returncode != 0
@@ -131,12 +135,19 @@ with urllib.request.urlopen(r,timeout=10) as response: print(json.dumps(json.loa
                     'brokerContainerId': mqtt, 'publisherConfigSha256': digest((directory / 'mosquitto_pub').read_bytes()), 'referenceAt': wire_time(reference),
                     'start': start, 'cadenceSeconds': 30, 'sampleCount': 6, 'seed': 'ANL02_FIXED_V1'}
             plan_file = directory / 'environment-publisher-plan.json'; plan_file.write_text(json.dumps(plan), encoding='utf-8')
-            GeneratedPublisher(plan_file, digest(plan_file.read_bytes())).publish()
+            if owner and len(channel['devices']) == 2:
+                from poc_close_mqtt import publish as publish_two_devices
+                publish_two_devices(owner, directory, mqtt, plan, channel)
+            else:
+                GeneratedPublisher(plan_file, digest(plan_file.read_bytes()), execute=(lambda command, body=None: owner.docker(*command[1:], input_text=body).stdout) if owner else None).publish()
             # Genuine negative temperature and measured soil zero through the unchanged actual MQTT producer.
             for kind, unit, value in [('AIR_TEMPERATURE', 'CELSIUS', '-2.125000'), ('SOIL_MOISTURE', 'PERCENT', '0')]:
-                body = {'schemaVersion': 1, 'observationId': str(uuid.uuid4()), 'deviceId': channel['devices'][0]['deviceId'], 'estateId': estate, 'blockId': block,
+                is_soil = owner and len(channel['devices']) == 2 and kind == 'SOIL_MOISTURE'
+                selected_device = channel['devices'][1 if is_soil else 0]
+                body = {'schemaVersion': 1, 'observationId': str(uuid.uuid4()), 'deviceId': selected_device['deviceId'], 'estateId': estate, 'blockId': block,
                         'kind': kind, 'unit': unit, 'value': value, 'observedAt': wire_time(reference - timedelta(seconds=5)), 'dataProvenance': 'SIMULATED'}
-                docker('exec', '-i', '-e', 'XDG_CONFIG_HOME=/tmp', mqtt, 'mosquitto_pub', '-h', '127.0.0.1', '-t', topic, '-q', '1', '-s', input_text=json.dumps(body))
+                selected_topic = f"agrosphere/v1/estates/{estate}/devices/{selected_device['deviceId']}/observations"
+                docker('exec', '-i', '-e', 'XDG_CONFIG_HOME=' + ('/tmp/soil' if is_soil else '/tmp'), mqtt, 'mosquitto_pub', '-h', '127.0.0.1', '-t', selected_topic, '-q', '1', '-s', input_text=json.dumps(body))
             value = wait_for(history, lambda x: x['totalMatchingCount'] == '20', '20 materialized source facts', 180)
             assert value['returnedKindCounts'] == {'AIR_TEMPERATURE': 7, 'SOIL_MOISTURE': 7, 'INTERVAL_RAINFALL': 6}
             assert not value['truncated'] and value['projectionState'] == 'OBSERVED_ONLY'
@@ -195,17 +206,22 @@ with urllib.request.urlopen(r,timeout=10) as response: print(json.dumps(json.loa
             browser = directory / 'environment-browser-fixture.json'
             browser.write_text(json.dumps({'runId': run, 'webOrigin': origin, 'gateway': base.removesuffix('/api/v1'), 'oidc': config['OIDC_PUBLIC_URL'],
                 'username': admin['username'], 'password': admin['password'], 'estateId': estate, 'blockId': block, 'from': start, 'to': end}), encoding='utf-8')
-            result = subprocess.run(['node', 'node_modules/@playwright/test/cli.js', 'test', '--project=environment-live'], cwd=ROOT.parent / 'agrosphere-web',
-                env={**os.environ, 'ENVIRONMENT_LIVE_FIXTURE': str(browser), 'AGRO_NO_PREVIEW': '1'}, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180)
+            result = (owner.run_browser if owner else subprocess.run)(['node', 'node_modules/@playwright/test/cli.js', 'test', '--project=environment-live', *(['--output=' + str(owner.private / 'browser-environment-live')] if owner else []), *(['--reporter=list'] if owner else [])], cwd=ROOT.parent / 'agrosphere-web',
+                env={**os.environ, **(owner.browser_environment() if owner else {}), 'ENVIRONMENT_LIVE_FIXTURE': str(browser), 'AGRO_NO_PREVIEW': '1'}, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180)
             output = result.stdout + result.stderr
             for secret in [db_password, environment_password, base_password, admin['password'], bearer, kc, *[v for k, v in config.items() if 'PASSWORD' in k]]: output = output.replace(secret, '[REDACTED]')
-            (ROOT / 'target/environment-browser.log').write_text(output, encoding='utf-8')
+            (evidence_root / 'environment-browser.log').write_text(output, encoding='utf-8')
+            if owner:
+                owner.inventory_copies()
             assert result.returncode == 0, 'Generated environmental Web check failed; inspect sanitized log'
             record.update(status='PASS', actualTelemetrySourceEvents=20, exactMatchingCount='20', reversedDuplicateReplay=20, immutableReceiptCount=20,
                 negativeTemperatureAndMeasuredZero=True, rainIntervalBeforeWindow=True, scopedConflictOutsideQuery=True, sanitizedDiagnostics=4,
                 admissionConfirmationPauseRecovery=True, processRestartStable=True, immutableFactRebuild=True, runtimeSqlDenials=True,
                 privateBrokerPermissions=True, actualKeycloakGatewayWeb=True, manifestSha256=digest(manifest_file.read_bytes()))
             print('PASS: generated MQTT/Telemetry -> immutable Analytics -> Gateway/Web, exact evidence/duplicates/conflict/diagnostics/pause/restart/rebuild.', flush=True)
+            if extra_acceptance:
+                extra_acceptance(config=config, compose=compose, call=call, estate=estate, block=block, admin=admin, base=base, bearer=bearer,
+                    directory=directory, run=run, mqtt=mqtt, environment_record=record, environment_container=container, environment_sql=sql, environment_from=start, environment_to=end)
             return {'environmentHistory': True, 'environmentalSourceEvents': 20, 'environmentalMaterializedCount': 20, 'realEnvironmentalWeb': True}
         finally:
             if container:
@@ -213,17 +229,17 @@ with urllib.request.urlopen(r,timeout=10) as response: print(json.dumps(json.loa
                 docker('rm', '--force', '--volumes', container); assert docker('inspect', container, check=False).returncode != 0
                 record['analyticsContainerRemoved'] = True
     try:
-        verify_telemetry(extra_telemetry=acceptance, evidence_path=ROOT / 'target/environment-telemetry-platform.json', platform_environment={'CORS_ALLOWED_ORIGINS': 'http://localhost:' + str(free_port())})
+        (platform_runner or verify_telemetry)(extra_telemetry=acceptance, evidence_path=evidence_root / 'environment-telemetry-platform.json', platform_environment={'CORS_ALLOWED_ORIGINS': 'http://localhost:' + str(free_port())})
     except Exception:
         record['status'] = 'FAILED'; raise
     finally:
         project = record.get('project')
-        if project:
+        if project and not owner:
             for kind in ['ps', 'volume', 'network']:
                 args = ['ps', '-aq'] if kind == 'ps' else [kind, 'ls', '-q']
                 assert not docker(*args, '--filter', 'label=com.docker.compose.project=' + project).stdout.strip(), 'Owned cleanup incomplete'
             record['ownedProjectResourcesAbsent'] = True
-        (ROOT / 'target/environment-platform.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+        (evidence_root / 'environment-platform.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
 
 
 if __name__ == '__main__': main()

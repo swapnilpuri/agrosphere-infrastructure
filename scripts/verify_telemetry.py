@@ -33,29 +33,32 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def main(extra_telemetry=None, evidence_path=None, platform_environment=None):
+def main(extra_telemetry=None, evidence_path=None, platform_environment=None, *, platform_runner=None, owner=None):
+    docker = owner.docker if owner else globals()["docker"]
     owned = []
     record = {'status': 'NOT_RUN', 'scope': 'SIMULATED owned disposable platform only'}
 
     def acceptance_inner(config, compose, call, estate, block, admin, base, **unused):
         project = config['COMPOSE_PROJECT_NAME']
-        assert project.startswith('agrosphere-3a-check-')
+        assert project.startswith('agrosphere-3a-check-') or owner and project == owner.project
         record['project'] = project
         gateway = compose('ps', '-q', 'gateway').stdout.strip()
         assert gateway and docker('inspect', '-f', '{{index .Config.Labels "com.docker.compose.project"}}', gateway).stdout.strip() == project
         image = project + '-telemetry'
         docker('build', '-t', image, str(ROOT.parent / 'agrosphere-telemetry-service'))
-        run = str(uuid.uuid4())
+        run = str(uuid.UUID(owner.run)) if owner else str(uuid.uuid4())
         record['run'] = run
         principal, subscriber = 'p' + uuid.uuid4().hex, 's' + uuid.uuid4().hex
         publisher_password, subscriber_password = secrets.token_urlsafe(28), secrets.token_urlsafe(28)
         runtime, runtime_password = 'tlm' + uuid.uuid4().hex, secrets.token_urlsafe(28)
         device = str(uuid.uuid4())
         topic = f'agrosphere/v1/estates/{estate}/devices/{device}/observations'
+        soil_device, soil_principal, soil_password = str(uuid.uuid4()), 'p' + uuid.uuid4().hex, secrets.token_urlsafe(28)
+        soil_topic = f'agrosphere/v1/estates/{estate}/devices/{soil_device}/observations'
         now = datetime.now(timezone.utc).replace(microsecond=0)
         timestamp = lambda value: value.isoformat().replace('+00:00', 'Z')
         start, end = timestamp(now - timedelta(hours=1)), timestamp(now + timedelta(hours=1))
-        with tempfile.TemporaryDirectory(prefix='agrosphere-tlm-platform-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='agrosphere-tlm-platform-', dir=owner.private if owner else None) as temporary:
             directory = Path(temporary).resolve()
             assert directory.name.startswith('agrosphere-tlm-platform-')
             (directory / '.generated-telemetry-owner').write_text(run)
@@ -64,12 +67,18 @@ def main(extra_telemetry=None, evidence_path=None, platform_environment=None):
                              'max_inflight_messages 10\nmax_queued_messages 100\nmessage_size_limit 4096\n'
                              'max_packet_size 8192\nuse_username_as_clientid true\n')
             acl = f'user {principal}\ntopic write {topic}\nuser {subscriber}\ntopic read {topic}\n'
+            if owner:
+                acl = f'user {principal}\ntopic write {topic}\nuser {soil_principal}\ntopic write {soil_topic}\nuser {subscriber}\ntopic read {topic}\ntopic read {soil_topic}\n'
             (directory / 'broker.conf').write_text(broker_config, newline='\n')
             (directory / 'acl').write_text(acl, newline='\n')
-            (directory / 'passwords').write_text(f'{principal}:{publisher_password}\n{subscriber}:{subscriber_password}\n', newline='\n')
+            (directory / 'passwords').write_text(f'{principal}:{publisher_password}\n{subscriber}:{subscriber_password}\n' +
+                (f'{soil_principal}:{soil_password}\n' if owner else ''), newline='\n')
             (directory / 'subscriber.password').write_text(subscriber_password)
             # Mosquitto clients load authentication from protected config, never CLI passwords.
             (directory / 'mosquitto_pub').write_text(f'-u {principal}\n-P {publisher_password}\n', newline='\n')
+            if owner:
+                (directory / 'soil').mkdir()
+                (directory / 'soil/mosquitto_pub').write_text(f'-u {soil_principal}\n-P {soil_password}\n', newline='\n')
             bearer = login(config, admin)
             call('/estates/' + estate, bearer=bearer)
             call('/blocks/' + block, bearer=bearer)
@@ -80,6 +89,8 @@ def main(extra_telemetry=None, evidence_path=None, platform_environment=None):
                         'brokerConfigFile': 'broker.conf', 'brokerConfigSha256': digest(directory / 'broker.conf'),
                         'windowStart': start, 'windowEnd': end,
                         'devices': [{'deviceId': device, 'estateId': estate, 'blockId': block, 'publisherPrincipal': principal}]}
+            if owner:
+                manifest['devices'].append({'deviceId': soil_device, 'estateId': estate, 'blockId': block, 'publisherPrincipal': soil_principal})
             (directory / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
             uid = str(os.getuid()) if hasattr(os, 'getuid') else '10001:10001'
 
@@ -98,6 +109,8 @@ def main(extra_telemetry=None, evidence_path=None, platform_environment=None):
             for filename, target in [('broker.conf', '/tmp/config'), ('acl', '/tmp/acl'),
                                      ('passwords', '/tmp/passwords'), ('mosquitto_pub', '/tmp/mosquitto_pub')]:
                 docker('cp', str(directory / filename), mqtt + ':' + target)
+            if owner:
+                docker('cp', str(directory / 'soil'), mqtt + ':/tmp/soil')
             docker('start', mqtt)
 
             def sql(statement, admin_login=False):
@@ -151,6 +164,8 @@ def main(extra_telemetry=None, evidence_path=None, platform_environment=None):
                 f"GRANT INSERT ON telemetry_observation,outbox_event TO {runtime};"
                 f"GRANT UPDATE(attempts,published_at,next_attempt_at) ON outbox_event TO {runtime};"
                 f"INSERT INTO telemetry_device VALUES('{device}','{estate}','{block}','{principal}',true,'{run}','{start}','{end}');")
+            if owner:
+                sql(f"INSERT INTO telemetry_device VALUES('{soil_device}','{estate}','{block}','{soil_principal}',true,'{run}','{start}','{end}');")
             # Durable bounded sink, with no credentials in CLI or emitted results.
             broker_code = '''import json,os,sys,urllib.request,base64
 operation=json.load(sys.stdin)
@@ -178,6 +193,8 @@ with urllib.request.urlopen(req,timeout=10) as response:
                     time.sleep(1)
             else:
                 raise RuntimeError('Disposable Telemetry did not become query-ready')
+            if owner:
+                owner.inventory_copies()
             if extra_telemetry:
                 outcome = extra_telemetry(config=config, compose=compose, call=call, estate=estate, block=block,
                                           admin=admin, base=base, bearer=bearer, directory=directory, mqtt=mqtt,
@@ -233,21 +250,21 @@ with urllib.request.urlopen(req,timeout=10) as response:
             cleanup_extra()
 
     try:
-        verify_platform(extra_acceptance=acceptance, extra_environment=platform_environment)
+        (platform_runner or verify_platform)(extra_acceptance=acceptance, extra_environment=platform_environment)
     except Exception:
         record['status'] = 'FAIL'
         raise
     finally:
         cleanup_extra()
         project = record.get('project')
-        if project:
+        if project and not owner:
             assert not docker('ps', '-aq', '--filter', 'label=com.docker.compose.project=' + project).stdout.strip()
             assert not docker('volume', 'ls', '-q', '--filter', 'label=com.docker.compose.project=' + project).stdout.strip()
             assert not docker('network', 'ls', '-q', '--filter', 'label=com.docker.compose.project=' + project).stdout.strip()
             record['ownedProjectResourcesAbsent'] = True
         record['ownedExtraContainersRemoved'] = len(owned)
-        destination = Path(evidence_path or EVIDENCE).resolve()
-        assert destination.parent == (ROOT / 'target').resolve()
+        destination = Path(evidence_path or (owner.path.parent / "telemetry-platform.json" if owner else EVIDENCE)).resolve()
+        assert destination.parent == (owner.path.parent if owner else ROOT / 'target').resolve()
         destination.parent.mkdir(exist_ok=True)
         destination.write_text(json.dumps(record, indent=2) + '\n')
 

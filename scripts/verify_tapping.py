@@ -48,82 +48,91 @@ def main(extra_acceptance=None, extra_environment=None):
             print('Starting isolated Compose project '+project+'...',flush=True)
             compose('up','-d','--wait','--wait-timeout','240')
             print('All Compose services healthy; exercising real Keycloak and gateway workflows...',flush=True)
-            configure(config)
-            realm=config['OIDC_PUBLIC_URL']+'/admin/realms/agrosphere'
-            kc=admin_token(config)
-            def user(name,role):
-                nonlocal kc
-                kc=admin_token(config)
-                value={'username':'verify-'+name,'password':secrets.token_urlsafe(28)}
-                request(realm+'/users','POST',{'username':value['username'],'enabled':True,'emailVerified':True,'firstName':'Verification','lastName':name,'email':name+'@example.invalid','credentials':[{'type':'password','value':value['password'],'temporary':False}]},kc,expected=201)
-                matches,_=request(realm+'/users?exact=true&username='+value['username'],token=kc)
-                value['id']=matches[0]['id'];definition,_=request(realm+'/roles/'+role,token=kc)
-                request(realm+'/users/'+value['id']+'/role-mappings/realm','POST',[definition],kc,expected=204)
-                return value
-            admin=user('admin','PLATFORM_ADMIN');worker=user('worker','FIELD_WORKER');auditor=user('auditor','AUDITOR')
-            token=login(config,admin)
-            import base64
-            claims=json.loads(base64.urlsafe_b64decode(token.split('.')[1]+'=='))
-            assert 'PLATFORM_ADMIN' in claims.get('realm_access',{}).get('roles',[]),'Administrator role missing from trusted claim'
-            assert 'operations-service' in claims.get('aud',[]),'Operations audience missing'
-            assert claims.get('sub')==admin['id'],'Canonical subject missing'
-            base=f'http://127.0.0.1:{gateway_port}/api/v1'
-            def call(path,method='GET',body=None,bearer=token,status=200):
-                headers={'Authorization':'Bearer '+bearer,'Content-Type':'application/json'}
-                req=urllib.request.Request(base+path,data=None if body is None else json.dumps(body).encode(),method=method,headers=headers)
-                try: response=urllib.request.urlopen(req,timeout=20)
-                except urllib.error.HTTPError as error: response=error
-                with response:
-                    raw=response.read();value=json.loads(raw) if raw else None
-                    if response.status!=status:
-                        detail={k:value.get(k) for k in ('status','title','detail') } if isinstance(value,dict) else None
-                        raise AssertionError(f'{method} {path}: expected {status}, got {response.status}; {detail}')
-                    return value
-            estate=call('/estates','POST',{'estateCode':'VERIFY3A','name':'SIMULATED tapping verification','countryCode':'LK','timezone':'Asia/Colombo','status':'ACTIVE'},status=201)['id']
-            division=call('/estates/'+estate+'/divisions','POST',{'estateId':estate,'divisionCode':'D1','name':'Verification','status':'ACTIVE'},status=201)['id']
-            block=call('/divisions/'+division+'/blocks','POST',{'estateId':estate,'divisionId':division,'blockCode':'B1','name':'Verification','cropType':'RUBBER','plantedAreaHectares':1,'plantedTreeCount':100,'tappableTreeCount':80,'status':'ACTIVE'},status=201)['id']
-            for value in [worker,auditor]:
-                user_url=realm+'/users/'+value['id']
-                current,_=request(user_url,token=kc)
-                current['attributes']={**current.get('attributes',{}),'estate_ids':[estate]}
-                request(user_url,'PUT',current,kc,expected=204)
-            worker_token=login(config,worker);audit_token=login(config,auditor)
-            worker_claims=json.loads(base64.urlsafe_b64decode(worker_token.split('.')[1]+'=='))
-            assert worker_claims.get('sub')==worker['id'],'Worker subject mismatch'
-            assert worker_claims.get('estate_ids')==[estate],'Trusted estate scope missing or malformed'
-            today=datetime.now(ZoneInfo('Asia/Colombo')).date().isoformat()
-            schedule=call('/tapping/schedules','POST',{'estateId':estate,'blockId':block,'name':'SIMULATED daily','recurrenceRule':'DAILY','plannedTreeCount':10,'effectiveFrom':today},status=201)['id']
-            call('/tapping/schedules/'+schedule+'/activate','POST',{'version':0})
-            generation={'version':1,'from':today,'to':today,'workerId':worker['id']}
-            assignment=call('/tapping/schedules/'+schedule+'/generate-assignments','POST',generation)[0]['id']
-            assert call('/tapping/schedules/'+schedule+'/generate-assignments','POST',generation)[0]['id']==assignment
-            call('/tapping/assignments/'+assignment+'/start','POST',{'version':0},worker_token)
-            completion={'version':1,'actualTreeCount':8,'notes':'SIMULATED verification'}
-            call('/tapping/assignments/'+assignment+'/complete','POST',completion,worker_token)
-            call('/tapping/assignments/'+assignment+'/complete','POST',completion,worker_token)
-            call('/tapping/assignments/'+assignment+'/cancel','POST',{'version':2},audit_token,403)
-            summary=call('/tapping/summary?estateId='+estate,bearer=audit_token)['content'][0]
-            assert summary['completion_percentage']==100 and summary['actual_trees']==8
-            # Read Operations-owned outbox only through its service database user.
-            sql="select count(*) from outbox_event where published_at is not null"
-            published=0
-            for attempt in range(20):
-                result=compose('exec','-T','-e','PGPASSWORD','postgres','psql','-h','127.0.0.1','-U','agrosphere_operations_app','-d','agrosphere_operations','-Atc',sql,environment={'PGPASSWORD':config['OPERATIONS_APP_DB_PASSWORD']})
-                published=int(result.stdout.strip())
-                if published==4:break
-                time.sleep(0.5)
-            assert published==4,'Outbox not confirmed/routed'
-            print('PASS: isolated Compose health, independent Docker builds, real Keycloak PKCE/JWT, Gateway routing, Estate validation for worker, generation deduplication, completion retry, auditor denial, summary and four confirmed events.',flush=True)
-            def enable_generated_alerts(subjects, privacy=False):
-                # Only this function's new random project/override, never an existing stack.
-                assert project.startswith('agrosphere-3a-check-') and subjects
-                for subject in subjects: assert str(uuid.UUID(subject))==subject
-                with override.open('a') as out:
-                    out.write('  operations:\n    environment:\n      OPERATIONS_ALERTS_GENERATEDTESTMODE: '+('\"false\"' if privacy else '\"true\"')+'\n      OPERATIONS_ALERTS_PRIVACYGENERATEDTESTMODE: '+('\"true\"' if privacy else '\"false\"')+'\n      OPERATIONS_ALERTS_GENERATEDSUBJECTS: '+json.dumps(','.join(subjects))+'\n')
-                compose('up','-d','--no-deps','--no-build','--wait','--wait-timeout','90','operations')
-            if extra_acceptance:
-                extra_acceptance(config=config,compose=compose,call=call,user=user,base=base,estate=estate,block=block,assignment=assignment,worker=worker,worker_token=worker_token,admin=admin,admin_token=token,audit_token=audit_token,realm=realm,keycloak_token=kc,enable_generated_alerts=enable_generated_alerts)
+            exercise(config, compose, extra_acceptance, override, project, gateway_port)
         finally:
             compose('down','--volumes','--remove-orphans',check=False)
             print('Removed only isolated verification project '+project,flush=True)
+
+
+def exercise(config, compose, extra_acceptance, override, project, gateway_port, owner=None):
+    """Existing 3A assertions against an explicitly supplied owned context."""
+    configure(config)
+    realm=config['OIDC_PUBLIC_URL']+'/admin/realms/agrosphere'
+    kc=admin_token(config)
+    def user(name,role):
+        nonlocal kc
+        kc=admin_token(config)
+        value={'username':'verify-'+name,'password':secrets.token_urlsafe(28)}
+        request(realm+'/users','POST',{'username':value['username'],'enabled':True,'emailVerified':True,'firstName':'Verification','lastName':name,'email':name+'@example.invalid','credentials':[{'type':'password','value':value['password'],'temporary':False}]},kc,expected=201)
+        matches,_=request(realm+'/users?exact=true&username='+value['username'],token=kc)
+        value['id']=matches[0]['id'];definition,_=request(realm+'/roles/'+role,token=kc)
+        request(realm+'/users/'+value['id']+'/role-mappings/realm','POST',[definition],kc,expected=204)
+        return value
+    admin=user('admin','PLATFORM_ADMIN');worker=user('worker','FIELD_WORKER');auditor=user('auditor','AUDITOR')
+    token=login(config,admin)
+    import base64
+    claims=json.loads(base64.urlsafe_b64decode(token.split('.')[1]+'=='))
+    assert 'PLATFORM_ADMIN' in claims.get('realm_access',{}).get('roles',[]),'Administrator role missing from trusted claim'
+    assert 'operations-service' in claims.get('aud',[]),'Operations audience missing'
+    assert claims.get('sub')==admin['id'],'Canonical subject missing'
+    base=f'http://127.0.0.1:{gateway_port}/api/v1'
+    def call(path,method='GET',body=None,bearer=token,status=200):
+        headers={'Authorization':'Bearer '+bearer,'Content-Type':'application/json'}
+        req=urllib.request.Request(base+path,data=None if body is None else json.dumps(body).encode(),method=method,headers=headers)
+        try: response=urllib.request.urlopen(req,timeout=20)
+        except urllib.error.HTTPError as error: response=error
+        with response:
+            raw=response.read();value=json.loads(raw) if raw else None
+            if response.status!=status:
+                detail={k:value.get(k) for k in ('status','title','detail') } if isinstance(value,dict) else None
+                raise AssertionError(f'{method} {path}: expected {status}, got {response.status}; {detail}')
+            return value
+    estate=call('/estates','POST',{'estateCode':'VERIFY3A','name':'SIMULATED tapping verification','countryCode':'LK','timezone':'Asia/Colombo','status':'ACTIVE'},status=201)['id']
+    division=call('/estates/'+estate+'/divisions','POST',{'estateId':estate,'divisionCode':'D1','name':'Verification','status':'ACTIVE'},status=201)['id']
+    block=call('/divisions/'+division+'/blocks','POST',{'estateId':estate,'divisionId':division,'blockCode':'B1','name':'Verification','cropType':'RUBBER','plantedAreaHectares':1,'plantedTreeCount':100,'tappableTreeCount':80,'status':'ACTIVE'},status=201)['id']
+    for value in [worker,auditor]:
+        user_url=realm+'/users/'+value['id']
+        current,_=request(user_url,token=kc)
+        current['attributes']={**current.get('attributes',{}),'estate_ids':[estate]}
+        request(user_url,'PUT',current,kc,expected=204)
+    worker_token=login(config,worker);audit_token=login(config,auditor)
+    worker_claims=json.loads(base64.urlsafe_b64decode(worker_token.split('.')[1]+'=='))
+    assert worker_claims.get('sub')==worker['id'],'Worker subject mismatch'
+    assert worker_claims.get('estate_ids')==[estate],'Trusted estate scope missing or malformed'
+    today=datetime.now(ZoneInfo('Asia/Colombo')).date().isoformat()
+    schedule=call('/tapping/schedules','POST',{'estateId':estate,'blockId':block,'name':'SIMULATED daily','recurrenceRule':'DAILY','plannedTreeCount':10,'effectiveFrom':today},status=201)['id']
+    call('/tapping/schedules/'+schedule+'/activate','POST',{'version':0})
+    generation={'version':1,'from':today,'to':today,'workerId':worker['id']}
+    assignment=call('/tapping/schedules/'+schedule+'/generate-assignments','POST',generation)[0]['id']
+    assert call('/tapping/schedules/'+schedule+'/generate-assignments','POST',generation)[0]['id']==assignment
+    call('/tapping/assignments/'+assignment+'/start','POST',{'version':0},worker_token)
+    completion={'version':1,'actualTreeCount':8,'notes':'SIMULATED verification'}
+    call('/tapping/assignments/'+assignment+'/complete','POST',completion,worker_token)
+    call('/tapping/assignments/'+assignment+'/complete','POST',completion,worker_token)
+    call('/tapping/assignments/'+assignment+'/cancel','POST',{'version':2},audit_token,403)
+    summary=call('/tapping/summary?estateId='+estate,bearer=audit_token)['content'][0]
+    assert summary['completion_percentage']==100 and summary['actual_trees']==8
+    # Read Operations-owned outbox only through its service database user.
+    sql="select count(*) from outbox_event where published_at is not null"
+    published=0
+    for attempt in range(20):
+        result=compose('exec','-T','-e','PGPASSWORD','postgres','psql','-h','127.0.0.1','-U','agrosphere_operations_app','-d','agrosphere_operations','-Atc',sql,environment={'PGPASSWORD':config['OPERATIONS_APP_DB_PASSWORD']})
+        published=int(result.stdout.strip())
+        if published==4:break
+        time.sleep(0.5)
+    assert published==4,'Outbox not confirmed/routed'
+    print('PASS: isolated Compose health, independent Docker builds, real Keycloak PKCE/JWT, Gateway routing, Estate validation for worker, generation deduplication, completion retry, auditor denial, summary and four confirmed events.',flush=True)
+    def enable_generated_alerts(subjects, privacy=False):
+        # Only this function's new random project/override, never an existing stack.
+        assert (project.startswith('agrosphere-3a-check-') or owner and project == owner.project) and subjects
+        for subject in subjects: assert str(uuid.UUID(subject))==subject
+        if owner:
+            owner.enable_alerts(subjects, privacy)
+            return
+        with override.open('a') as out:
+            out.write('  operations:\n    environment:\n      OPERATIONS_ALERTS_GENERATEDTESTMODE: '+('\"false\"' if privacy else '\"true\"')+'\n      OPERATIONS_ALERTS_PRIVACYGENERATEDTESTMODE: '+('\"true\"' if privacy else '\"false\"')+'\n      OPERATIONS_ALERTS_GENERATEDSUBJECTS: '+json.dumps(','.join(subjects))+'\n')
+        compose('up','-d','--no-deps','--no-build','--wait','--wait-timeout','90','operations')
+    if extra_acceptance:
+        extra_acceptance(config=config,compose=compose,call=call,user=user,base=base,estate=estate,block=block,assignment=assignment,worker=worker,worker_token=worker_token,auditor=auditor,admin=admin,admin_token=token,audit_token=audit_token,realm=realm,keycloak_token=kc,enable_generated_alerts=enable_generated_alerts)
+
 if __name__=='__main__':main()
